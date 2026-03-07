@@ -251,6 +251,32 @@ ruff check src/ tests/
 mypy src/
 ```
 
+## Creating Custom SME Personas
+
+To add a new SME persona:
+
+1. Create a template file in `config/sme/your_persona.md`:
+```yaml
+---
+persona: Your Persona Name
+domain: Your Domain
+trigger_keywords: [keyword1, keyword2, keyword3]
+skill_files: [your-skill-name]
+interaction_modes: [advisor, co-executor, debater]
+default_model: sonnet
+---
+
+# Your Persona Name
+
+You are a domain expert in [Your Domain]...
+```
+
+2. Register the persona in `src/core/sme_registry.py` by adding an entry to `SME_REGISTRY`.
+
+3. (Optional) Create a matching skill in `.claude/skills/your-skill-name/SKILL.md`.
+
+The system will auto-discover the persona via keyword matching during task analysis.
+
 ## Documentation
 
 - **[LLM Configuration Guide](docs/llm-configuration.md)** - Complete guide for configuring LLM providers

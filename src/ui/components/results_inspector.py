@@ -272,11 +272,31 @@ def render_result_card(result: AgentResult, compact: bool = False) -> None:
     """Render a single result card."""
     meta = result.metadata
 
+    # Determine agent type and colour
+    council_keywords = ["Council", "Arbiter", "Ethics"]
+    sme_names = [
+        "IAM Architect", "Cloud Architect", "Security Analyst",
+        "Data Engineer", "AI/ML Engineer", "Test Engineer",
+        "Business Analyst", "Technical Writer", "DevOps Engineer",
+        "Frontend Developer",
+    ]
+
+    if any(kw in meta.agent_name for kw in council_keywords):
+        agent_type_color = "#FFD700"  # Gold for Council
+        agent_type_label = "Council"
+    elif meta.agent_name in sme_names:
+        agent_type_color = "#28a745"  # Green for SME
+        agent_type_label = "SME"
+    else:
+        agent_type_color = "#007bff"  # Blue for Operational
+        agent_type_label = "Operational"
+
     if compact:
         # Compact card for list view
         st.markdown(f"""
         <div style="
             border: 1px solid #e0e0e0;
+            border-left: 4px solid {agent_type_color};
             border-radius: 8px;
             padding: 12px;
             margin-bottom: 8px;
@@ -284,6 +304,8 @@ def render_result_card(result: AgentResult, compact: bool = False) -> None:
         ">
             <div style="display: flex; justify-content: space-between;">
                 <strong>{meta.title or meta.agent_name}</strong>
+                <span style="background: {agent_type_color}; color: white; padding: 1px 6px;
+                    border-radius: 8px; font-size: 10px;">{agent_type_label}</span>
                 <small>{meta.timestamp.strftime("%H:%M")}</small>
             </div>
             <div style="font-size: 12px; color: #666; margin-top: 4px;">
@@ -305,6 +327,7 @@ def render_result_card(result: AgentResult, compact: bool = False) -> None:
         st.markdown(f"""
         <div style="
             border: 1px solid #e0e0e0;
+            border-left: 4px solid {agent_type_color};
             border-radius: 12px;
             padding: 16px;
             margin-bottom: 16px;
@@ -315,6 +338,8 @@ def render_result_card(result: AgentResult, compact: bool = False) -> None:
                     <h3 style="margin: 0;">{status_emoji} {meta.title or meta.agent_name}</h3>
                     <div style="color: #666; margin-top: 4px;">
                         <strong>{meta.agent_name}</strong> • {meta.phase}
+                        <span style="background: {agent_type_color}; color: white; padding: 2px 8px;
+                            border-radius: 10px; font-size: 11px; margin-left: 8px;">{agent_type_label}</span>
                     </div>
                 </div>
                 <div style="text-align: right;">
@@ -419,6 +444,33 @@ def render_content_by_format(result: AgentResult) -> None:
     else:
         st.markdown(content)
 
+    # Highlight flagged/unverified claims
+    if result.structured_data:
+        flagged = result.structured_data.get("flagged_claims", [])
+        unverified = result.structured_data.get("unverified_claims", [])
+
+        if flagged:
+            st.markdown("#### Flagged Claims")
+            for claim in flagged:
+                claim_text = claim if isinstance(claim, str) else claim.get("claim", str(claim))
+                st.markdown(
+                    f'<div style="background: #ffcccc; border-left: 4px solid #dc3545; '
+                    f'padding: 8px 12px; margin-bottom: 6px; border-radius: 4px; color: #721c24;">'
+                    f'<strong>Flagged:</strong> {claim_text}</div>',
+                    unsafe_allow_html=True,
+                )
+
+        if unverified:
+            st.markdown("#### Unverified Claims")
+            for claim in unverified:
+                claim_text = claim if isinstance(claim, str) else claim.get("claim", str(claim))
+                st.markdown(
+                    f'<div style="background: #ffe0e0; border-left: 4px solid #e74c3c; '
+                    f'padding: 8px 12px; margin-bottom: 6px; border-radius: 4px; color: #721c24;">'
+                    f'<strong>Unverified:</strong> {claim_text}</div>',
+                    unsafe_allow_html=True,
+                )
+
     # Download button
     render_download_button(
         content,
@@ -491,6 +543,12 @@ def render_results_browser() -> None:
     else:
         for result in results:
             render_result_card(result)
+            # Expander per subagent showing structured output
+            with st.expander(f"Structured output: {result.metadata.agent_name}", expanded=False):
+                if result.structured_data:
+                    st.json(result.structured_data)
+                else:
+                    st.info("No structured data available for this agent.")
             st.markdown("---")
 
 

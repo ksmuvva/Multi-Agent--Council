@@ -292,6 +292,8 @@ def render_debate_viewer() -> None:
 
     with tab4:
         render_debate_consensus(debate)
+        st.markdown("---")
+        render_arbiter_verdict(debate)
 
     with tab5:
         render_debate_metadata(debate)
@@ -356,6 +358,23 @@ def render_debate_header(debate: DebateTranscript) -> None:
             confidence = int(debate.consensus.confidence_score * 100)
             st.metric("Consensus", f"{confidence}%")
 
+    # Consensus badge
+    if debate.consensus:
+        if debate.consensus.consensus_reached:
+            st.markdown(
+                '<div style="display: inline-block; background: #d4edda; color: #155724; '
+                'padding: 6px 16px; border-radius: 20px; font-weight: bold; margin-bottom: 12px;">'
+                '&#10004; Consensus Reached</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div style="display: inline-block; background: #fff3cd; color: #856404; '
+                'padding: 6px 16px; border-radius: 20px; font-weight: bold; margin-bottom: 12px;">'
+                '&#9888; No Consensus</div>',
+                unsafe_allow_html=True,
+            )
+
     # Perspectives
     st.markdown("**Perspectives:**")
 
@@ -417,6 +436,20 @@ def render_argument(argument: Argument, perspectives: List[DebatePerspective]) -
         PersuasionStrength.VERY_STRONG: "💪💪💪💪",
     }
 
+    # Check if speaker is a known SME persona
+    sme_persona_names = [
+        "IAM Architect", "Cloud Architect", "Security Analyst",
+        "Data Engineer", "AI/ML Engineer", "Test Engineer",
+        "Business Analyst", "Technical Writer", "DevOps Engineer",
+        "Frontend Developer",
+    ]
+    is_sme = argument.speaker in sme_persona_names
+    sme_badge_html = (
+        ' <span style="background: #28a745; color: white; padding: 2px 8px; '
+        'border-radius: 10px; font-size: 10px; margin-left: 6px;">SME</span>'
+        if is_sme else ""
+    )
+
     st.markdown(f"""
     <div style="
         border: 1px solid #e0e0e0;
@@ -427,7 +460,7 @@ def render_argument(argument: Argument, perspectives: List[DebatePerspective]) -
     ">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
-                <strong>{argument.speaker}</strong>
+                <strong>{argument.speaker}</strong>{sme_badge_html}
                 <span style="
                     background: {type_color}20;
                     color: {type_color};
@@ -707,6 +740,43 @@ def render_debate_metadata(debate: DebateTranscript) -> None:
             st.markdown(f"**Position:** {perspective.position}")
             st.markdown(f"**Description:** {perspective.description}")
             st.markdown(f"**Opening Statement:** {perspective.opening_statement}")
+
+
+def render_arbiter_verdict(debate: DebateTranscript) -> None:
+    """Render the Quality Arbiter's final verdict if present in debate metadata."""
+    verdict = debate.metadata.get("arbiter_verdict") if debate.metadata else None
+
+    if not verdict:
+        st.info("No Quality Arbiter verdict available for this debate.")
+        return
+
+    ruling = verdict.get("ruling", "No ruling provided")
+    rationale = verdict.get("rationale", "")
+    quality_score = verdict.get("quality_score")
+    recommendations = verdict.get("recommendations", [])
+
+    st.markdown("#### Quality Arbiter Verdict")
+
+    st.markdown(
+        f'<div style="border: 2px solid #FFD700; border-radius: 12px; padding: 16px; '
+        f'background: #fffdf0; margin-bottom: 16px;">'
+        f'<h4 style="margin: 0 0 8px 0; color: #b8860b;">Ruling</h4>'
+        f'<p style="margin: 0; font-size: 16px;">{ruling}</p>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    if quality_score is not None:
+        st.metric("Quality Score", f"{quality_score:.2f}")
+
+    if rationale:
+        st.markdown("**Rationale:**")
+        st.markdown(rationale)
+
+    if recommendations:
+        st.markdown("**Recommendations:**")
+        for rec in recommendations:
+            st.markdown(f"- {rec}")
 
 
 # =============================================================================

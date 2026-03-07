@@ -163,6 +163,68 @@ def render_agent_section() -> None:
         )
         st.session_state.timeout = timeout
 
+    # Per-agent model selection and enable/disable toggles
+    st.markdown("---")
+    st.markdown("#### Per-Agent Configuration")
+
+    agent_names = [
+        "Orchestrator", "Analyst", "Planner", "Clarifier", "Researcher",
+        "Executor", "Code Reviewer", "Formatter", "Verifier", "Critic",
+        "Reviewer", "Memory Curator", "Council Chair",
+    ]
+
+    for agent_name in agent_names:
+        col_toggle, col_model = st.columns([1, 2])
+        with col_toggle:
+            enabled = st.toggle(
+                f"{agent_name}",
+                value=st.session_state.get(f"agent_enabled_{agent_name}", True),
+                key=f"toggle_{agent_name}",
+            )
+            st.session_state[f"agent_enabled_{agent_name}"] = enabled
+        with col_model:
+            model_options = ["haiku", "sonnet", "opus"]
+            current = st.session_state.get(f"model_{agent_name}", "sonnet")
+            default_index = model_options.index(current) if current in model_options else 1
+            model = st.selectbox(
+                f"Model for {agent_name}",
+                options=model_options,
+                index=default_index,
+                key=f"model_select_{agent_name}",
+                label_visibility="collapsed",
+            )
+            st.session_state[f"model_{agent_name}"] = model
+
+    # SME Controls
+    st.markdown("---")
+    st.markdown("#### SME Persona Controls")
+
+    sme_personas = [
+        "IAM Architect", "Cloud Architect", "Security Analyst",
+        "Data Engineer", "AI/ML Engineer", "Test Engineer",
+        "Business Analyst", "Technical Writer", "DevOps Engineer",
+        "Frontend Developer",
+    ]
+
+    max_sme = st.slider(
+        "Max concurrent SMEs",
+        min_value=0,
+        max_value=10,
+        value=st.session_state.get("max_sme_count", 3),
+        help="Maximum number of SME personas active simultaneously",
+    )
+    st.session_state.max_sme_count = max_sme
+
+    sme_col1, sme_col2 = st.columns(2)
+    for idx, sme_name in enumerate(sme_personas):
+        with sme_col1 if idx % 2 == 0 else sme_col2:
+            sme_enabled = st.toggle(
+                f"{sme_name}",
+                value=st.session_state.get(f"sme_enabled_{sme_name}", True),
+                key=f"sme_toggle_{sme_name}",
+            )
+            st.session_state[f"sme_enabled_{sme_name}"] = sme_enabled
+
     # Feature toggles
     st.markdown("---")
     st.markdown("#### Feature Toggles")
@@ -171,7 +233,7 @@ def render_agent_section() -> None:
 
     with col1:
         enable_smes = st.checkbox(
-            "👤 Enable SME Personas",
+            "Enable SME Personas",
             value=st.session_state.get("enable_smes", True),
             help="Allow automatic SME spawning",
         )
@@ -179,7 +241,7 @@ def render_agent_section() -> None:
 
     with col2:
         enable_debate = st.checkbox(
-            "🎭 Enable Self-Play Debate",
+            "Enable Self-Play Debate",
             value=st.session_state.get("enable_debate", True),
             help="Use adversarial debate for Tier 3-4",
         )
@@ -187,7 +249,7 @@ def render_agent_section() -> None:
 
     with col3:
         enable_memory = st.checkbox(
-            "💾 Enable Memory Curator",
+            "Enable Memory Curator",
             value=st.session_state.get("enable_memory", True),
             help="Extract knowledge to memory",
         )

@@ -41,6 +41,15 @@ from src.core.sme_registry import (
     find_personas_by_keywords,
     get_persona_for_display,
 )
+from src.core.sdk_integration import (
+    ClaudeAgentOptions,
+    build_agent_options,
+    spawn_subagent,
+    create_sdk_mcp_server,
+    get_skills_for_agent,
+    AGENT_ALLOWED_TOOLS,
+    PermissionMode,
+)
 from src.schemas.analyst import TaskIntelligenceReport
 from src.session import (
     SessionPersistence,
@@ -170,6 +179,9 @@ class OrchestratorAgent:
         # Store provider info
         self.provider = get_provider()
         self.provider_config = self.settings.get_provider_config()
+
+        # Register MCP server for custom tools
+        self.mcp_server = create_sdk_mcp_server()
 
     # ========================================================================
     # Main Entry Point
@@ -623,10 +635,11 @@ class OrchestratorAgent:
         """
         Execute the pipeline through all phases.
 
-        This is a simplified implementation. The full implementation
-        would use the Claude Agent SDK's Task tool to spawn subagents.
+        Uses Claude Agent SDK's Task tool to spawn subagents with
+        proper ClaudeAgentOptions configuration per agent.
         """
         phases = pipeline._get_phases_for_tier()
+        previous_outputs: Dict[str, Any] = {}
 
         for phase in phases:
             # Check budget before each phase
@@ -638,47 +651,168 @@ class OrchestratorAgent:
             # Get agents for this phase
             agents = pipeline._get_agents_for_phase(phase)
 
+            if self.verbose:
+                self._log(f"Executing {phase.value} with agents: {agents}")
+
             # Execute agents in this phase
             for agent_name in agents:
+                # Build input with context from previous phases
+                agent_input = self._build_agent_input(
+                    agent_name=agent_name,
+                    user_prompt=context["user_prompt"],
+                    previous_outputs=previous_outputs,
+                    phase=phase,
+                )
+
+                # Normalize agent name for config path
+                config_name = agent_name.lower().replace(" ", "_").replace("-", "_")
+                agent_role = ""
+
+                # Handle council agents with role
+                if config_name in ("domain_council_chair", "quality_arbiter", "ethics___safety_advisor"):
+                    agent_role = {
+                        "domain_council_chair": "chair",
+                        "quality_arbiter": "arbiter",
+                        "ethics___safety_advisor": "ethics",
+                    }.get(config_name, "")
+                    config_name = "council"
+
+                start = time.time()
                 result = self._spawn_agent(
                     session=session,
                     agent_name=agent_name,
-                    system_prompt_template=f"config/agents/{agent_name.lower()}/CLAUDE.md",
-                    input_data=context["user_prompt"],
+                    system_prompt_template=f"config/agents/{config_name}/CLAUDE.md",
+                    agent_role=agent_role,
+                    input_data=agent_input,
                     model=self._get_model_for_agent(agent_name),
                 )
+                end = time.time()
 
                 # Track execution
-                session.agent_executions.append(AgentExecution(
+                execution = AgentExecution(
                     agent_name=agent_name,
-                    start_time=time.time(),
-                    end_time=time.time(),
+                    start_time=start,
+                    end_time=end,
                     status=result["status"],
                     output=result.get("output"),
                     error=result.get("error"),
                     tokens_used=result.get("tokens_used", 0),
                     cost_usd=result.get("cost_usd", 0.0),
-                ))
+                )
+                session.agent_executions.append(execution)
+
+                # Store output for downstream agents
+                previous_outputs[agent_name] = result.get("output")
 
                 # Check for escalation
                 if result.get("escalation_needed"):
                     self._handle_escalation(session, result)
 
-            # Handle verdict matrix for Phase 6
+                # Check budget after each agent
+                if session.is_budget_exceeded():
+                    if self.verbose:
+                        self._log("Budget exceeded mid-phase - returning partial result")
+                    return pipeline.state
+
+            # Handle verdict matrix for Phase 6 (Review)
             if phase == Phase.PHASE_6_REVIEW:
                 action = self._evaluate_verdict(session)
                 if action == MatrixAction.EXECUTOR_REVISE:
-                    # Continue to Phase 7
-                    continue
-                elif action in [MatrixAction.RESEARCHER_REVERIFY, MatrixAction.FULL_REGENERATION]:
-                    # Loop back
-                    pass
+                    if session.revision_cycle < session.max_revisions:
+                        session.revision_cycle += 1
+                        if self.verbose:
+                            self._log(f"Revision cycle {session.revision_cycle}/{session.max_revisions}")
+                        # Re-execute Phase 5 (Executor) then loop back to review
+                        self._re_execute_phase(
+                            session, context, previous_outputs,
+                            Phase.PHASE_5_SOLUTION_GENERATION,
+                        )
+                    else:
+                        if self.verbose:
+                            self._log("Max revisions reached - proceeding to final review")
+                elif action == MatrixAction.QUALITY_ARBITER:
+                    # Spawn Quality Arbiter for dispute resolution
+                    self._spawn_quality_arbiter(session, context["user_prompt"])
 
             # Handle debate if triggered
             if self._should_trigger_debate(session, phase):
                 self._conduct_debate(session, context)
 
         return pipeline.state
+
+    def _build_agent_input(
+        self,
+        agent_name: str,
+        user_prompt: str,
+        previous_outputs: Dict[str, Any],
+        phase: "Phase",
+    ) -> str:
+        """Build context-enriched input for an agent."""
+        parts = [f"User Request: {user_prompt}"]
+
+        # Add relevant previous outputs
+        if agent_name in ("Executor", "executor"):
+            if "Task Analyst" in previous_outputs:
+                parts.append(f"\nTask Analysis:\n{previous_outputs['Task Analyst']}")
+            if "Planner" in previous_outputs:
+                parts.append(f"\nExecution Plan:\n{previous_outputs['Planner']}")
+            if "Researcher" in previous_outputs:
+                parts.append(f"\nResearch Findings:\n{previous_outputs['Researcher']}")
+
+        elif agent_name in ("Verifier", "Critic"):
+            if "Executor" in previous_outputs:
+                parts.append(f"\nSolution to Review:\n{previous_outputs['Executor']}")
+
+        elif agent_name in ("Reviewer",):
+            if "Executor" in previous_outputs:
+                parts.append(f"\nSolution:\n{previous_outputs['Executor']}")
+            if "Verifier" in previous_outputs:
+                parts.append(f"\nVerification Result:\n{previous_outputs['Verifier']}")
+            if "Critic" in previous_outputs:
+                parts.append(f"\nCritique:\n{previous_outputs['Critic']}")
+
+        elif agent_name in ("Formatter",):
+            if "Executor" in previous_outputs:
+                parts.append(f"\nRaw Output to Format:\n{previous_outputs['Executor']}")
+
+        return "\n\n".join(parts)
+
+    def _re_execute_phase(
+        self,
+        session: SessionState,
+        context: Dict[str, Any],
+        previous_outputs: Dict[str, Any],
+        phase: "Phase",
+    ) -> None:
+        """Re-execute a phase during revision loop."""
+        pipeline = PipelineBuilder.for_tier(session.current_tier)
+        agents = pipeline._get_agents_for_phase(phase)
+
+        for agent_name in agents:
+            agent_input = self._build_agent_input(
+                agent_name=agent_name,
+                user_prompt=context["user_prompt"],
+                previous_outputs=previous_outputs,
+                phase=phase,
+            )
+
+            # Add revision context
+            revision_context = (
+                f"\n\nThis is REVISION {session.revision_cycle}. "
+                "The previous output failed quality review. "
+                "Please address the issues identified and produce an improved version."
+            )
+
+            config_name = agent_name.lower().replace(" ", "_")
+            result = self._spawn_agent(
+                session=session,
+                agent_name=agent_name,
+                system_prompt_template=f"config/agents/{config_name}/CLAUDE.md",
+                input_data=agent_input + revision_context,
+                model=self._get_model_for_agent(agent_name),
+            )
+
+            previous_outputs[agent_name] = result.get("output")
 
     # ========================================================================
     # Agent Spawning
@@ -696,32 +830,68 @@ class OrchestratorAgent:
         """
         Spawn a subagent using the Claude Agent SDK.
 
-        This is a placeholder implementation. The full implementation
-        would use the SDK's Task tool or subagent API.
+        Uses ClaudeAgentOptions for configuration with:
+        - Per-agent model selection
+        - Least-privilege allowedTools
+        - JSON Schema outputFormat from Pydantic models
+        - setting_sources for skill auto-discovery
+        - Retry logic (1x non-critical, 2x critical)
         """
         # Load system prompt
         system_prompt = self._load_system_prompt(system_prompt_template, agent_role)
 
-        # Determine model
-        if model is None:
-            model = self.operational_model
+        # Normalize agent name for config lookup
+        normalized_name = agent_name.lower().replace(" ", "_").replace("-", "_")
 
-        # In a real implementation, this would call:
-        # result = agent.task(
-        #     name=agent_name,
-        #     system_prompt=system_prompt,
-        #     input_data=input_data,
-        #     model=model,
-        #     max_turns=self._get_max_turns(agent_name),
-        # )
+        # Get skills for this agent
+        skills = get_skills_for_agent(normalized_name)
+        skill_instructions = ""
+        if skills:
+            skill_instructions = (
+                f"\n\nYou have access to these skills: {', '.join(skills)}. "
+                "Use the Skill tool to invoke them when needed."
+            )
 
-        # Placeholder return
-        return {
-            "status": "success",
-            "output": f"Output from {agent_name}",
-            "tokens_used": 1000,
-            "cost_usd": 0.01,
-        }
+        # Build SDK-compatible agent options
+        options = build_agent_options(
+            agent_name=normalized_name,
+            system_prompt=system_prompt,
+            agent_role=agent_role,
+            model_override=model,
+            max_turns_override=self._get_max_turns(agent_name),
+            extra_system_prompt=skill_instructions if skill_instructions else None,
+        )
+
+        # Determine retry count based on criticality
+        critical_agents = {"verifier", "executor", "domain_council_chair", "quality_arbiter"}
+        max_retries = 2 if normalized_name in critical_agents else 1
+
+        # Execute via SDK
+        result = spawn_subagent(
+            options=options,
+            input_data=str(input_data) if input_data else "",
+            max_retries=max_retries,
+        )
+
+        # Track cost
+        cost = result.get("cost_usd", 0.0)
+        session.total_cost_usd += cost
+
+        # Budget warning
+        if session.should_warn_budget() and self.verbose:
+            self._log(
+                f"Budget warning: ${session.total_cost_usd:.4f} / "
+                f"${session.max_budget_usd:.2f} "
+                f"({session.budget_utilization*100:.0f}%)"
+            )
+
+        # Check for escalation in output
+        output = result.get("output", "")
+        if isinstance(output, dict):
+            result["escalation_needed"] = output.get("escalation_needed", False)
+            result["escalation_reason"] = output.get("escalation_reason", "")
+
+        return result
 
     def _load_system_prompt(
         self,
@@ -898,7 +1068,7 @@ class OrchestratorAgent:
         # Collect outputs from agents
         outputs = []
         for execution in session.agent_executions:
-            if execution.status == "complete" and execution.output:
+            if execution.status in ("complete", "success") and execution.output:
                 outputs.append(execution.output)
 
         # Format final response
@@ -945,13 +1115,48 @@ class OrchestratorAgent:
         user_prompt: str,
         file_path: Optional[str] = None
     ) -> str:
-        """Load and combine input content."""
+        """Load and combine input content with multimodal file attachments."""
         content = user_prompt
 
         if file_path:
             try:
-                # In real implementation, would read and process the file
-                content += f"\n\n[File: {file_path}]"
+                from pathlib import Path
+                path = Path(file_path)
+
+                if not path.exists():
+                    if self.verbose:
+                        self._log(f"File not found: {file_path}")
+                    return content
+
+                # Read text-based files
+                text_extensions = {
+                    '.py', '.js', '.ts', '.java', '.cpp', '.c', '.go', '.rs',
+                    '.rb', '.php', '.txt', '.md', '.json', '.yaml', '.yml',
+                    '.xml', '.csv', '.sql', '.html', '.css', '.toml', '.ini',
+                }
+
+                if path.suffix.lower() in text_extensions:
+                    file_content = path.read_text(encoding='utf-8')
+                    content += (
+                        f"\n\n--- Attached File: {path.name} ---\n"
+                        f"```{path.suffix[1:]}\n{file_content}\n```"
+                    )
+                elif path.suffix.lower() in {'.pdf', '.docx', '.doc', '.xlsx', '.pptx'}:
+                    content += (
+                        f"\n\n[Attached Document: {path.name} "
+                        f"({path.stat().st_size / 1024:.1f} KB)]"
+                    )
+                elif path.suffix.lower() in {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'}:
+                    content += (
+                        f"\n\n[Attached Image: {path.name} "
+                        f"({path.stat().st_size / 1024:.1f} KB)]"
+                    )
+                else:
+                    content += f"\n\n[Attached File: {path.name}]"
+
+                if self.verbose:
+                    self._log(f"Loaded input file: {file_path}")
+
             except Exception as e:
                 if self.verbose:
                     self._log(f"Error loading file: {e}")

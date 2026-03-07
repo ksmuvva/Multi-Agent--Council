@@ -72,7 +72,8 @@ def query(
     prompt: str = typer.Argument(..., help="The task or question to execute"),
     tier: Optional[int] = typer.Option(None, min=1, max=4, help="Force specific tier (1-4)"),
     format: str = typer.Option("markdown", help="Output format"),
-    file: Optional[Path] = typer.Option(None, help="Save output to file"),
+    file: Optional[Path] = typer.Option(None, "--file", "-o", help="Save output to file"),
+    input_file: Optional[Path] = typer.Option(None, "--input-file", "-i", help="Attach input file for multimodal processing"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
     session_id: Optional[str] = typer.Option(None, help="Resume existing session"),
 ) -> None:
@@ -81,12 +82,24 @@ def query(
 
     The system will analyze your request, classify complexity,
     and execute with appropriate agents for the tier.
+
+    Use --input-file to attach files for multimodal input (code, documents, data).
     """
     ctx = typer.Context
 
     # Emit task started event
     session_id_to_use = session_id or f"cli_{int(datetime.now().timestamp())}"
     emit_task_started("cli", prompt, tier or 2, session_id_to_use)
+
+    # Handle multimodal input file
+    file_path_str = None
+    if input_file:
+        if not input_file.exists():
+            typer.echo(f"Error: Input file '{input_file}' not found.", err=True)
+            raise typer.Exit(code=1)
+        file_path_str = str(input_file)
+        if verbose:
+            typer.echo(f"[SYSTEM] Input file attached: {input_file}")
 
     try:
         # Create orchestrator
@@ -115,6 +128,7 @@ def query(
             tier_level=tier,
             session_id=session_id_to_use,
             format=format,
+            file_path=file_path_str,
         )
 
         emit_task_progress("cli", 0.9, "Finalizing output...", session_id_to_use)
