@@ -10,9 +10,13 @@ from enum import Enum
 
 
 class Verdict(str, Enum):
-    """Pass/fail verdict."""
+    """Verdict actions per FR-031/FR-011."""
     PASS = "PASS"
-    FAIL = "FAIL"
+    FAIL = "FAIL"  # Kept for backward compatibility
+    PASS_WITH_CAVEATS = "PASS_WITH_CAVEATS"
+    REVISE = "REVISE"
+    REJECT = "REJECT"
+    ESCALATE = "ESCALATE"
 
 
 class CheckItem(BaseModel):
@@ -77,7 +81,7 @@ class ReviewVerdict(BaseModel):
     Contains the final quality gate decision with pass/fail verdict,
     reasons, and revision instructions if failing.
     """
-    verdict: Verdict = Field(..., description="Final PASS or FAIL verdict")
+    verdict: Verdict = Field(..., description="Final verdict: PASS, PASS_WITH_CAVEATS, REVISE, REJECT, or ESCALATE")
     confidence: float = Field(
         ...,
         ge=0.0,
@@ -94,7 +98,7 @@ class ReviewVerdict(BaseModel):
     )
     revision_instructions: List[Revision] = Field(
         default_factory=list,
-        description="Specific revisions needed if FAIL"
+        description="Specific revisions needed if REVISE, REJECT, or PASS_WITH_CAVEATS"
     )
     revision_count: int = Field(
         default=0,

@@ -64,6 +64,12 @@ from src.config import (
     get_api_key,
     get_provider,
 )
+from src.core.events import (
+    emit_agent_started,
+    emit_agent_completed,
+    emit_agent_failed,
+    emit_cost_recorded,
+)
 
 
 @dataclass
@@ -574,6 +580,19 @@ class OrchestratorAgent:
             if self.verbose:
                 self._log(f"Council selected SMEs: {smes}")
 
+            # Spawn selected SMEs via SDK
+            sme_interaction = self._extract_sme_interaction_modes(chair_result["output"])
+            for sme_id in smes:
+                mode = sme_interaction.get(sme_id, "consult")
+                sme_result = self._spawn_sme(
+                    session=session,
+                    persona_id=sme_id,
+                    input_data=input_content,
+                    interaction_mode=mode,
+                )
+                if sme_result.get("status") == "success" and self.verbose:
+                    self._log(f"SME {sme_id} ({mode}) completed")
+
         # On Tier 4, also spawn Quality Arbiter and Ethics Advisor
         if session.current_tier == TierLevel.ADVERSARIAL:
             self._spawn_quality_arbiter(session, input_content)
@@ -587,6 +606,14 @@ class OrchestratorAgent:
         if isinstance(council_output, dict):
             return council_output.get("selected_smes", [])
         return []
+
+    def _extract_sme_interaction_modes(self, council_output: Any) -> Dict[str, str]:
+        """Extract per-SME interaction modes from Council output."""
+        if isinstance(council_output, dict):
+            modes = council_output.get("interaction_modes", {})
+            if isinstance(modes, dict):
+                return modes
+        return {}
 
     def _spawn_quality_arbiter(self, session: SessionState, input_content: str) -> None:
         """Spawn Quality Arbiter to set acceptance criteria."""
@@ -866,6 +893,27 @@ class OrchestratorAgent:
         critical_agents = {"verifier", "executor", "domain_council_chair", "quality_arbiter"}
         max_retries = 2 if normalized_name in critical_agents else 1
 
+        # Map agent name to tier category for UI events
+        council_names = {
+            "domain_council_chair", "quality_arbiter", "ethics_advisor",
+        }
+        if normalized_name in council_names:
+            agent_tier = "council"
+        elif normalized_name.startswith("sme_") or agent_role.lower().startswith("sme"):
+            agent_tier = "sme"
+        else:
+            agent_tier = "operational"
+
+        agent_id = f"{normalized_name}_{int(time.time() * 1000)}"
+
+        # Emit AGENT_STARTED event
+        emit_agent_started(
+            agent_id=agent_id,
+            agent_name=agent_name,
+            tier=agent_tier,
+            phase=agent_role or "Execution",
+        )
+
         # Execute via SDK
         result = spawn_subagent(
             options=options,
@@ -876,6 +924,42 @@ class OrchestratorAgent:
         # Track cost
         cost = result.get("cost_usd", 0.0)
         session.total_cost_usd += cost
+
+        # Emit AGENT_COMPLETED or AGENT_FAILED based on result
+        result_status = result.get("status", "complete")
+        if result_status == "failed" or result.get("error"):
+            emit_agent_failed(
+                agent_id=agent_id,
+                agent_name=agent_name,
+                error=result.get("error", "Unknown error"),
+            )
+        else:
+            output_preview = ""
+            raw_output = result.get("output", "")
+            if isinstance(raw_output, dict):
+                output_preview = str(raw_output)[:200]
+            elif isinstance(raw_output, str):
+                output_preview = raw_output[:200]
+            emit_agent_completed(
+                agent_id=agent_id,
+                agent_name=agent_name,
+                output=output_preview,
+            )
+
+        # Emit COST_RECORDED with token/cost data
+        input_tokens = result.get("input_tokens", 0)
+        output_tokens = result.get("output_tokens", 0)
+        total_tokens = result.get("total_tokens", input_tokens + output_tokens)
+        emit_cost_recorded(
+            agent_name=agent_name,
+            model=result.get("model", options.model or "unknown"),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            cost_usd=cost,
+            tier=session.current_tier.value if hasattr(session.current_tier, 'value') else int(session.current_tier),
+            phase=agent_role or "Execution",
+        )
 
         # Budget warning
         if session.should_warn_budget() and self.verbose:
@@ -994,35 +1078,113 @@ class OrchestratorAgent:
         return False
 
     def _conduct_debate(self, session: SessionState, context: Dict[str, Any]) -> None:
-        """Conduct a debate session."""
+        """
+        Conduct a self-play debate via SDK subagent spawning.
+
+        Spawns agents with opposing perspectives for each round,
+        collects positions, then synthesizes via Council Chair.
+        """
         protocol = DebateProtocol(
             max_rounds=session.max_debate_rounds,
             consensus_threshold=0.8,
         )
 
-        # Add participants
         protocol.add_participant("Executor")
         protocol.add_participant("Critic")
         protocol.add_participant("Verifier")
 
-        # Add SMEs
         for sme in session.active_smes:
             protocol.add_sme_participant(sme)
 
-        # Conduct debate rounds (simplified)
-        for _ in range(session.max_debate_rounds):
-            # In real implementation, would spawn agents for debate
+        # Get the solution under debate
+        executor_output = next(
+            (e.output for e in session.agent_executions if e.agent_name == "Executor" and e.output),
+            context.get("user_prompt", ""),
+        )
+
+        debate_positions: Dict[str, List[str]] = {}
+
+        for round_num in range(session.max_debate_rounds):
             session.debate_rounds += 1
 
-            # Check if consensus reached
-            # protocol.conduct_round(...)
-            # if not protocol.should_continue_debate(...):
-            #     break
+            participants = ["Critic", "Verifier"] + session.active_smes[:2]
+            for participant in participants:
+                debate_prompt = (
+                    f"DEBATE ROUND {round_num + 1}/{session.max_debate_rounds}\n\n"
+                    f"Evaluate this solution:\n{str(executor_output)[:2000]}\n\n"
+                )
+
+                if round_num > 0 and debate_positions:
+                    debate_prompt += "Previous positions:\n"
+                    for p, positions in debate_positions.items():
+                        if positions:
+                            debate_prompt += f"- {p}: {positions[-1][:200]}\n"
+                    debate_prompt += "\nRespond to other positions and refine your assessment."
+
+                config_name = participant.lower().replace(" ", "_").replace("-", "_")
+                is_sme = participant in session.active_smes
+
+                result = self._spawn_agent(
+                    session=session,
+                    agent_name=f"{participant} (Debate R{round_num+1})",
+                    system_prompt_template=f"config/sme/{config_name}.md" if is_sme else f"config/agents/{config_name}/CLAUDE.md",
+                    input_data=debate_prompt,
+                    model=self.sme_model if is_sme else self._get_model_for_agent(participant),
+                )
+
+                position = str(result.get("output", ""))[:500]
+                if participant not in debate_positions:
+                    debate_positions[participant] = []
+                debate_positions[participant].append(position)
+
+            if session.is_budget_exceeded():
+                if self.verbose:
+                    self._log("Budget exceeded during debate - stopping")
+                break
 
         outcome = protocol.get_outcome()
 
         if self.verbose:
             self._log(f"Debate outcome: {outcome.consensus_level}")
+
+    def _spawn_sme(
+        self,
+        session: SessionState,
+        persona_id: str,
+        input_data: str,
+        interaction_mode: str = "consult",
+    ) -> Dict[str, Any]:
+        """
+        Spawn an SME persona via the SDK.
+
+        Args:
+            session: Current session state
+            persona_id: SME persona ID from registry
+            input_data: The prompt/data for the SME
+            interaction_mode: consult, debate, or co_author
+        """
+        from src.core.sme_registry import get_persona
+        from src.core.sdk_integration import get_skills_for_sme
+
+        persona = get_persona(persona_id)
+        if not persona:
+            return {"status": "error", "error": f"SME persona '{persona_id}' not found"}
+
+        mode_instructions = {
+            "consult": "Provide your expert opinion. The team will decide whether to incorporate your advice.",
+            "debate": "Take a strong position based on your expertise. Support it with evidence.",
+            "co_author": "Actively participate in creating the solution alongside the team.",
+        }
+
+        mode_prompt = mode_instructions.get(interaction_mode, mode_instructions["consult"])
+
+        return self._spawn_agent(
+            session=session,
+            agent_name=f"SME: {persona.display_name}",
+            system_prompt_template=f"config/sme/{persona_id}.md",
+            input_data=f"{mode_prompt}\n\n{input_data}",
+            model=self.sme_model,
+        )
 
     # ========================================================================
     # Escalation

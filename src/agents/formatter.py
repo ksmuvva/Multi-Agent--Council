@@ -5,6 +5,7 @@ Presents raw output in requested formats: Markdown, code files,
 DOCX, PDF, XLSX, PPTX, Mermaid diagrams, JSON, YAML.
 """
 
+import ast
 import re
 import json
 import os
@@ -191,35 +192,329 @@ class FormatterAgent:
         content: Any,
         format_enum: OutputFormat,
         context: Optional[Dict[str, Any]] = None
-    ) -> str:
+    ) -> Dict[str, Any]:
         """
         Format content as a document (DOCX/PDF/XLSX/PPTX).
 
-        In a real implementation, this would invoke the document-creation skill.
+        Generates actual document files using python-docx, openpyxl,
+        and python-pptx libraries.
         """
-        # Placeholder: In real implementation, would call document-creation skill
-        # result = invoke_skill("document-creation", format=format_enum.value, content=content)
+        if format_enum == OutputFormat.DOCX:
+            return self._generate_docx(content, context)
+        elif format_enum == OutputFormat.XLSX:
+            return self._generate_xlsx(content, context)
+        elif format_enum == OutputFormat.PPTX:
+            return self._generate_pptx(content, context)
+        elif format_enum == OutputFormat.PDF:
+            return self._generate_pdf_fallback(content, context)
+        return {"content": str(content), "format": format_enum.value}
 
-        format_name = format_enum.value.upper()
+    def _generate_docx(
+        self,
+        content: Any,
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Generate a real .docx file using python-docx."""
+        from docx import Document
 
-        # Generate a structured representation
+        doc = Document()
+
+        # Determine title
+        title = "Document"
+        if context and "title" in context:
+            title = context["title"]
+        elif context and "task" in context:
+            title = context["task"]
+
+        doc.add_heading(title, level=0)
+
+        # Add content based on type
         if isinstance(content, dict):
-            structured = self._dict_to_markdown(content)
+            for key, value in content.items():
+                doc.add_heading(str(key), level=1)
+                if isinstance(value, dict):
+                    # Add sub-dict as a table
+                    table = doc.add_table(rows=1, cols=2)
+                    table.style = "Table Grid"
+                    hdr = table.rows[0].cells
+                    hdr[0].text = "Key"
+                    hdr[1].text = "Value"
+                    for sub_key, sub_val in value.items():
+                        row = table.add_row().cells
+                        row[0].text = str(sub_key)
+                        row[1].text = str(sub_val)
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, dict):
+                            # Add list of dicts as a table
+                            if item:
+                                headers = list(item.keys())
+                                table = doc.add_table(rows=1, cols=len(headers))
+                                table.style = "Table Grid"
+                                for i, h in enumerate(headers):
+                                    table.rows[0].cells[i].text = str(h)
+                                row = table.add_row().cells
+                                for i, h in enumerate(headers):
+                                    row[i].text = str(item.get(h, ""))
+                        else:
+                            doc.add_paragraph(str(item), style="List Bullet")
+                else:
+                    doc.add_paragraph(str(value))
         elif isinstance(content, list):
-            structured = self._list_to_markdown(content)
+            for item in content:
+                if isinstance(item, dict):
+                    for k, v in item.items():
+                        doc.add_paragraph(f"{k}: {v}")
+                    doc.add_paragraph("")  # spacer
+                else:
+                    doc.add_paragraph(str(item), style="List Bullet")
         else:
-            structured = str(content)
+            # Plain text content - add as paragraphs
+            text = str(content)
+            for paragraph in text.split("\n\n"):
+                if paragraph.strip():
+                    doc.add_paragraph(paragraph.strip())
 
-        # In production, this would return the actual document file
-        return f"""
-# Document: {format_name} Output
+        # Save file
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"document_{timestamp}.docx"
+        file_path = os.path.join(self.output_dir, filename)
+        doc.save(file_path)
+        size_bytes = os.path.getsize(file_path)
 
-{structured}
+        return {
+            "file_path": file_path,
+            "format": "docx",
+            "size_bytes": size_bytes,
+        }
 
----
-*In production, this would be an actual {format_name} file generated
-via the document-creation skill.*
-"""
+    def _generate_xlsx(
+        self,
+        content: Any,
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Generate a real .xlsx file using openpyxl."""
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+
+        # Set sheet title
+        if context and "title" in context:
+            ws.title = context["title"][:31]  # Excel limit
+        else:
+            ws.title = "Sheet1"
+
+        if isinstance(content, dict):
+            # Dict: keys as headers in row 1, values as row 2
+            # Or if values are lists, treat as columnar data
+            headers = list(content.keys())
+            ws.append(headers)
+
+            # Check if values are lists (columnar data)
+            if all(isinstance(v, list) for v in content.values()):
+                max_len = max(len(v) for v in content.values())
+                for i in range(max_len):
+                    row = []
+                    for h in headers:
+                        vals = content[h]
+                        row.append(str(vals[i]) if i < len(vals) else "")
+                    ws.append(row)
+            elif all(isinstance(v, dict) for v in content.values()):
+                # Nested dicts: each key is a section
+                for key, sub_dict in content.items():
+                    ws.append([])  # blank row
+                    ws.append([str(key)])
+                    for sk, sv in sub_dict.items():
+                        ws.append([str(sk), str(sv)])
+            else:
+                # Simple key-value pairs as two columns
+                ws.delete_rows(1)  # remove the header row we added
+                ws.append(["Key", "Value"])
+                for key, value in content.items():
+                    ws.append([str(key), str(value)])
+        elif isinstance(content, list):
+            if content and isinstance(content[0], dict):
+                # List of dicts: keys as headers, each dict as a row
+                headers = list(content[0].keys())
+                ws.append(headers)
+                for item in content:
+                    row = [str(item.get(h, "")) for h in headers]
+                    ws.append(row)
+            elif content and isinstance(content[0], (list, tuple)):
+                # List of lists: each sub-list is a row
+                for row in content:
+                    ws.append([str(cell) for cell in row])
+            else:
+                # Simple list: one item per row
+                ws.append(["Value"])
+                for item in content:
+                    ws.append([str(item)])
+        else:
+            # Plain text: split into rows
+            text = str(content)
+            ws.append(["Content"])
+            for line in text.split("\n"):
+                if line.strip():
+                    ws.append([line.strip()])
+
+        # Save file
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"spreadsheet_{timestamp}.xlsx"
+        file_path = os.path.join(self.output_dir, filename)
+        wb.save(file_path)
+        size_bytes = os.path.getsize(file_path)
+
+        return {
+            "file_path": file_path,
+            "format": "xlsx",
+            "size_bytes": size_bytes,
+        }
+
+    def _generate_pptx(
+        self,
+        content: Any,
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Generate a real .pptx file using python-pptx."""
+        from pptx import Presentation
+        from pptx.util import Inches, Pt
+
+        prs = Presentation()
+
+        # Determine title
+        title = "Presentation"
+        if context and "title" in context:
+            title = context["title"]
+        elif context and "task" in context:
+            title = context["task"]
+
+        # Add title slide
+        title_layout = prs.slide_layouts[0]  # Title Slide layout
+        slide = prs.slides.add_slide(title_layout)
+        slide.shapes.title.text = title
+        if slide.placeholders[1]:
+            slide.placeholders[1].text = datetime.now().strftime("%Y-%m-%d")
+
+        # Add content slides
+        bullet_layout = prs.slide_layouts[1]  # Title and Content layout
+
+        if isinstance(content, dict):
+            for key, value in content.items():
+                slide = prs.slides.add_slide(bullet_layout)
+                slide.shapes.title.text = str(key)
+                body = slide.placeholders[1]
+                tf = body.text_frame
+                tf.clear()
+
+                if isinstance(value, dict):
+                    for sk, sv in value.items():
+                        p = tf.add_paragraph()
+                        p.text = f"{sk}: {sv}"
+                        p.level = 0
+                elif isinstance(value, list):
+                    for item in value:
+                        p = tf.add_paragraph()
+                        p.text = str(item)
+                        p.level = 0
+                else:
+                    tf.text = str(value)
+        elif isinstance(content, list):
+            # Split list items across slides (max ~6 bullets per slide)
+            chunk_size = 6
+            for i in range(0, len(content), chunk_size):
+                chunk = content[i:i + chunk_size]
+                slide = prs.slides.add_slide(bullet_layout)
+                slide.shapes.title.text = f"{title} ({i // chunk_size + 1})"
+                body = slide.placeholders[1]
+                tf = body.text_frame
+                tf.clear()
+
+                for item in chunk:
+                    p = tf.add_paragraph()
+                    if isinstance(item, dict):
+                        p.text = ", ".join(f"{k}: {v}" for k, v in item.items())
+                    else:
+                        p.text = str(item)
+                    p.level = 0
+        else:
+            # Plain text: split into paragraphs across slides
+            text = str(content)
+            paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+            chunk_size = 4
+            for i in range(0, len(paragraphs), chunk_size):
+                chunk = paragraphs[i:i + chunk_size]
+                slide = prs.slides.add_slide(bullet_layout)
+                slide.shapes.title.text = f"{title}"
+                body = slide.placeholders[1]
+                tf = body.text_frame
+                tf.clear()
+
+                for para in chunk:
+                    p = tf.add_paragraph()
+                    p.text = para
+                    p.level = 0
+
+        # Save file
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"presentation_{timestamp}.pptx"
+        file_path = os.path.join(self.output_dir, filename)
+        prs.save(file_path)
+        size_bytes = os.path.getsize(file_path)
+
+        return {
+            "file_path": file_path,
+            "format": "pptx",
+            "size_bytes": size_bytes,
+        }
+
+    def _generate_pdf_fallback(
+        self,
+        content: Any,
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate a Markdown file as a PDF fallback.
+
+        Full PDF generation requires additional dependencies (pandoc or
+        weasyprint). This method saves content as Markdown which can be
+        converted to PDF externally.
+        """
+        # Build markdown content
+        title = "Document"
+        if context and "title" in context:
+            title = context["title"]
+        elif context and "task" in context:
+            title = context["task"]
+
+        md_lines = [f"# {title}\n"]
+
+        if isinstance(content, dict):
+            md_lines.append(self._dict_to_markdown(content))
+        elif isinstance(content, list):
+            md_lines.append(self._list_to_markdown(content))
+        else:
+            md_lines.append(str(content))
+
+        md_content = "\n".join(md_lines)
+
+        # Save as .md file
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"document_{timestamp}.md"
+        file_path = os.path.join(self.output_dir, filename)
+        self._write_file(file_path, md_content)
+        size_bytes = os.path.getsize(file_path)
+
+        return {
+            "file_path": file_path,
+            "format": "md",
+            "size_bytes": size_bytes,
+            "note": (
+                "PDF generation requires pandoc or weasyprint. "
+                "Content has been saved as Markdown. Convert with: "
+                "pandoc document.md -o document.pdf"
+            ),
+        }
 
     def _format_mermaid(
         self,

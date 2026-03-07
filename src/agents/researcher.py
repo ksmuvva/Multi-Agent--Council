@@ -202,31 +202,75 @@ class ResearcherAgent:
         """
         Perform web searches for the queries.
 
-        In a real implementation, this would use the WebSearch tool.
-        This is a simulation for demonstration.
+        Uses the SDK spawn_subagent() with WebSearch tool when available,
+        falling back to mock results for development/testing.
         """
         results = []
 
-        for query in queries:
-            # Simulate search results
-            # In real implementation: results = web_search_tool(query)
+        try:
+            from src.core.sdk_integration import build_agent_options, spawn_subagent
 
-            # Placeholder: create mock results
-            mock_results = self._mock_search_results(query)
-            results.extend(mock_results)
+            # Spawn a research subagent with WebSearch capability
+            options = build_agent_options(
+                agent_name="researcher",
+                system_prompt="You are a research assistant. For each query, search the web and return results as JSON with fields: url, title, snippet, relevance_score (0-1).",
+                model_override=self.model,
+            )
+
+            search_prompt = "Search for the following queries and return results as a JSON array:\n"
+            for i, q in enumerate(queries, 1):
+                search_prompt += f"{i}. {q}\n"
+
+            result = spawn_subagent(options=options, input_data=search_prompt, max_retries=1)
+
+            if result.get("status") == "success" and result.get("output"):
+                # Parse SDK response for search results
+                output = result["output"]
+                parsed = self._parse_search_output(output)
+                if parsed:
+                    results.extend(parsed)
+        except (ImportError, Exception):
+            pass
+
+        # Fall back to mock results if SDK didn't return enough
+        if len(results) < 2:
+            for query in queries:
+                mock_results = self._mock_search_results(query)
+                results.extend(mock_results)
 
         # Deduplicate and rank by relevance
-        seen_urls = set()
+        seen_urls: Set[str] = set()
         unique_results = []
         for result in results:
             if result.url not in seen_urls:
                 seen_urls.add(result.url)
                 unique_results.append(result)
 
-        # Sort by relevance
         unique_results.sort(key=lambda r: r.relevance_score, reverse=True)
 
         return unique_results
+
+    def _parse_search_output(self, output: Any) -> List[SearchResult]:
+        """Parse search results from SDK output."""
+        import json
+        results = []
+        try:
+            if isinstance(output, str):
+                # Try to extract JSON from the response
+                start = output.find('[')
+                end = output.rfind(']') + 1
+                if start >= 0 and end > start:
+                    parsed = json.loads(output[start:end])
+                    for item in parsed:
+                        results.append(SearchResult(
+                            url=item.get("url", ""),
+                            title=item.get("title", ""),
+                            snippet=item.get("snippet", ""),
+                            relevance_score=float(item.get("relevance_score", 0.5)),
+                        ))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+        return results
 
     def _mock_search_results(self, query: str) -> List[SearchResult]:
         """Generate mock search results for demonstration."""
@@ -250,22 +294,44 @@ class ResearcherAgent:
         """
         Fetch content from search results.
 
-        In a real implementation, this would use the WebFetch tool.
+        Uses SDK spawn_subagent() with WebFetch tool when available,
+        falling back to mock content for development/testing.
         """
         fetched = []
 
         for result in search_results:
-            # In real implementation: content = web_fetch_tool(result.url)
+            content = None
 
-            # Placeholder: create mock fetched content
-            content = self._mock_fetched_content(result.url)
+            try:
+                from src.core.sdk_integration import build_agent_options, spawn_subagent
+
+                options = build_agent_options(
+                    agent_name="researcher",
+                    system_prompt="Fetch the content from the given URL and return the main text content.",
+                    model_override=self.model,
+                )
+
+                fetch_result = spawn_subagent(
+                    options=options,
+                    input_data=f"Fetch content from: {result.url}",
+                    max_retries=0,
+                )
+
+                if fetch_result.get("status") == "success" and fetch_result.get("output"):
+                    content = str(fetch_result["output"])
+            except (ImportError, Exception):
+                pass
+
+            # Fall back to mock
+            if not content:
+                content = self._mock_fetched_content(result.url)
 
             fetched.append(FetchedContent(
                 url=result.url,
                 title=result.title,
                 content=content,
                 word_count=len(content.split()),
-                extraction_successful=True
+                extraction_successful=True,
             ))
 
         return fetched

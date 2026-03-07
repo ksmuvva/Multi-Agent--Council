@@ -63,12 +63,12 @@ class ReviewerAgent:
         self.max_turns = max_turns
         self.system_prompt = self._load_system_prompt()
 
-        # Verdict matrix: (verifier_verdict, critic_verdict) -> action
+        # Verdict matrix: (verifier_verdict, critic_verdict) -> Verdict
         self.verdict_matrix = {
-            (Verdict.PASS, Verdict.PASS): "PROCEED_TO_FORMATTER",
-            (Verdict.PASS, Verdict.FAIL): "EXECUTOR_REVISE",
-            (Verdict.FAIL, Verdict.PASS): "RESEARCHER_REVERIFY",
-            (Verdict.FAIL, Verdict.FAIL): "FULL_REGENERATION",
+            (Verdict.PASS, Verdict.PASS): Verdict.PASS,
+            (Verdict.PASS, Verdict.FAIL): Verdict.PASS_WITH_CAVEATS,
+            (Verdict.FAIL, Verdict.PASS): Verdict.REVISE,
+            (Verdict.FAIL, Verdict.FAIL): Verdict.REJECT,
         }
 
         # Critical failure patterns that force FAIL
@@ -146,9 +146,10 @@ class ReviewerAgent:
             verdict, quality_gates, critical_failures, matrix_action
         )
 
-        # Step 7: Generate revision instructions if FAIL
+        # Step 7: Generate revision instructions for non-PASS verdicts
         revision_instructions = []
-        if verdict == Verdict.FAIL:
+        if verdict in (Verdict.FAIL, Verdict.REVISE, Verdict.REJECT,
+                       Verdict.PASS_WITH_CAVEATS, Verdict.ESCALATE):
             revision_instructions = self._generate_revision_instructions(
                 quality_gates, critical_failures, matrix_action, context
             )
@@ -512,34 +513,46 @@ class ReviewerAgent:
         critical_failures: Dict[str, List[str]],
         context: ReviewContext,
     ) -> Verdict:
-        """Determine the final verdict."""
-        # FAIL on critical security issues
-        if critical_failures.get("security"):
-            return Verdict.FAIL
+        """Determine the final verdict using the 5-verdict system (FR-031/FR-011)."""
+        verifier_passed = quality_gates.verifier_signoff.passed
+        critic_passed = quality_gates.critic_findings_addressed.passed
 
-        # FAIL on high-risk hallucinations
-        if critical_failures.get("hallucination"):
-            return Verdict.FAIL
+        # REJECT on critical security or hallucination issues
+        if critical_failures.get("security") or critical_failures.get("hallucination"):
+            return Verdict.REJECT
 
-        # FAIL on critical quality gate failures
-        if not quality_gates.verifier_signoff.passed:
-            return Verdict.FAIL
-
-        if not quality_gates.completeness.passed:
-            return Verdict.FAIL
-
-        # FAIL if code review failed (for code output)
+        # REJECT if code review failed with critical issues (for code output)
         if context.is_code_output and quality_gates.code_review_passed:
             if not quality_gates.code_review_passed.passed:
-                return Verdict.FAIL
+                return Verdict.REJECT
 
-        # FAIL if many critic findings not addressed
-        if not quality_gates.critic_findings_addressed.passed:
-            # Check severity
-            if quality_gates.critic_findings_addressed.severity_if_failed == "critical":
-                return Verdict.FAIL
+        # ESCALATE if tier 4 and there is disagreement between verifier and critic
+        if context.tier_level >= 4 and verifier_passed != critic_passed:
+            return Verdict.ESCALATE
 
-        # Otherwise, check overall score
+        # Verifier failed but critic passed -> REVISE (fixable issues)
+        if not verifier_passed and critic_passed:
+            # If over max revisions, downgrade REVISE to PASS_WITH_CAVEATS
+            if context.revision_count >= context.max_revisions:
+                return Verdict.PASS_WITH_CAVEATS
+            return Verdict.REVISE
+
+        # Verifier passed but critic found issues -> PASS_WITH_CAVEATS
+        if verifier_passed and not critic_passed:
+            return Verdict.PASS_WITH_CAVEATS
+
+        # Both failed -> REJECT
+        if not verifier_passed and not critic_passed:
+            return Verdict.REJECT
+
+        # Both passed - check remaining gates
+        if not quality_gates.completeness.passed:
+            # If over max revisions, downgrade to PASS_WITH_CAVEATS
+            if context.revision_count >= context.max_revisions:
+                return Verdict.PASS_WITH_CAVEATS
+            return Verdict.REVISE
+
+        # Overall gate check
         gate_scores = [
             quality_gates.completeness.passed,
             quality_gates.consistency.passed,
@@ -551,10 +564,17 @@ class ReviewerAgent:
         if context.is_code_output and quality_gates.code_review_passed:
             gate_scores.append(quality_gates.code_review_passed.passed)
 
-        # Pass if at least 80% of gates pass
         pass_ratio = sum(gate_scores) / len(gate_scores)
 
-        return Verdict.PASS if pass_ratio >= 0.8 else Verdict.FAIL
+        if pass_ratio >= 0.8:
+            return Verdict.PASS
+        elif pass_ratio >= 0.6:
+            return Verdict.PASS_WITH_CAVEATS
+        else:
+            # If over max revisions, accept with caveats
+            if context.revision_count >= context.max_revisions:
+                return Verdict.PASS_WITH_CAVEATS
+            return Verdict.REVISE
 
     def _extract_verifier_verdict(
         self, verifier_report: Optional[Dict[str, Any]]
@@ -582,9 +602,11 @@ class ReviewerAgent:
 
     def _apply_verdict_matrix(
         self, verifier_verdict: Verdict, critic_verdict: Verdict
-    ) -> str:
+    ) -> Verdict:
         """Apply the verdict matrix to determine action."""
-        return self.verdict_matrix.get((verifier_verdict, critic_verdict), "UNKNOWN")
+        return self.verdict_matrix.get(
+            (verifier_verdict, critic_verdict), Verdict.REVISE
+        )
 
     # ========================================================================
     # Report Generation
@@ -595,49 +617,69 @@ class ReviewerAgent:
         verdict: Verdict,
         quality_gates: QualityGateResults,
         critical_failures: Dict[str, List[str]],
-        matrix_action: str,
+        matrix_action: Verdict,
     ) -> List[str]:
         """Generate reasons supporting the verdict."""
         reasons = []
 
+        all_gates = [
+            ("Completeness", quality_gates.completeness),
+            ("Consistency", quality_gates.consistency),
+            ("Verifier", quality_gates.verifier_signoff),
+            ("Critic", quality_gates.critic_findings_addressed),
+            ("Readability", quality_gates.readability),
+        ]
+
+        passed_gates = [name for name, gate in all_gates if gate.passed]
+        failed_gates = [
+            f"{gate.check_name}: {gate.notes}"
+            for _, gate in all_gates
+            if not gate.passed
+        ]
+
         if verdict == Verdict.PASS:
             reasons.append("All quality gates passed")
-
-            passed_gates = [
-                name for name, gate in [
-                    ("Completeness", quality_gates.completeness),
-                    ("Consistency", quality_gates.consistency),
-                    ("Verifier", quality_gates.verifier_signoff),
-                    ("Critic", quality_gates.critic_findings_addressed),
-                    ("Readability", quality_gates.readability),
-                ]
-                if gate.passed
-            ]
             reasons.append(f"Passed: {', '.join(passed_gates)}")
-
-            if matrix_action == "PROCEED_TO_FORMATTER":
+            if matrix_action == Verdict.PASS:
                 reasons.append("Verdict matrix: Proceed to formatting")
 
-        else:  # FAIL
-            # List failed gates
-            failed_gates = [
-                f"{gate.check_name}: {gate.notes}"
-                for gate in [
-                    quality_gates.completeness,
-                    quality_gates.consistency,
-                    quality_gates.verifier_signoff,
-                    quality_gates.critic_findings_addressed,
-                ]
-                if not gate.passed
-            ]
-            reasons.extend(failed_gates)
+        elif verdict == Verdict.PASS_WITH_CAVEATS:
+            reasons.append("Output accepted with caveats")
+            if passed_gates:
+                reasons.append(f"Passed: {', '.join(passed_gates)}")
+            if failed_gates:
+                reasons.extend(failed_gates)
+            reasons.append(f"Verdict matrix action: {matrix_action.value}")
 
-            # List critical failures
+        elif verdict == Verdict.REVISE:
+            reasons.append("Output requires revision")
+            reasons.extend(failed_gates)
+            reasons.append(f"Verdict matrix action: {matrix_action.value}")
+
+        elif verdict == Verdict.REJECT:
+            reasons.append("Output rejected due to critical issues")
+            reasons.extend(failed_gates)
             for category, failures in critical_failures.items():
                 if failures:
-                    reasons.append(f"{category.capitalize()} issues: {', '.join(failures[:2])}")
+                    reasons.append(
+                        f"{category.capitalize()} issues: {', '.join(failures[:2])}"
+                    )
+            reasons.append(f"Verdict matrix action: {matrix_action.value}")
 
-            reasons.append(f"Verdict matrix action: {matrix_action}")
+        elif verdict == Verdict.ESCALATE:
+            reasons.append("Escalating to Quality Arbiter due to Tier 4 disagreement")
+            reasons.extend(failed_gates)
+            reasons.append(f"Verdict matrix action: {matrix_action.value}")
+
+        else:
+            # Backward compat for FAIL
+            reasons.extend(failed_gates)
+            for category, failures in critical_failures.items():
+                if failures:
+                    reasons.append(
+                        f"{category.capitalize()} issues: {', '.join(failures[:2])}"
+                    )
+            reasons.append(f"Verdict matrix action: {matrix_action.value}")
 
         return reasons
 
@@ -645,17 +687,17 @@ class ReviewerAgent:
         self,
         quality_gates: QualityGateResults,
         critical_failures: Dict[str, List[str]],
-        matrix_action: str,
+        matrix_action: Verdict,
         context: ReviewContext,
     ) -> List[Revision]:
-        """Generate specific revision instructions."""
+        """Generate specific revision instructions based on verdict type."""
         revisions = []
 
-        # Map matrix action to revision category
+        # Map matrix verdict to revision category
         action_categories = {
-            "EXECUTOR_REVISE": "Content Revision",
-            "RESEARCHER_REVERIFY": "Verification",
-            "FULL_REGENERATION": "Complete Regeneration",
+            Verdict.PASS_WITH_CAVEATS: "Content Revision",
+            Verdict.REVISE: "Verification",
+            Verdict.REJECT: "Complete Regeneration",
         }
 
         category = action_categories.get(matrix_action, "Quality Improvement")
@@ -698,28 +740,28 @@ class ReviewerAgent:
                     )
                 )
 
-        # Add matrix-specific instructions
-        if matrix_action == "EXECUTOR_REVISE":
+        # Add verdict-specific instructions
+        if matrix_action == Verdict.PASS_WITH_CAVEATS:
             revisions.append(
                 Revision(
                     category="Content Revision",
                     description="Revise output based on Critic findings",
-                    reason="Critic identified issues",
+                    reason="Critic identified issues but Verifier passed",
                     priority="high",
                     specific_instructions="Address all Critic-identified problems",
                 )
             )
-        elif matrix_action == "RESEARCHER_REVERIFY":
+        elif matrix_action == Verdict.REVISE:
             revisions.append(
                 Revision(
                     category="Verification",
                     description="Re-verify claims and sources",
-                    reason="Verifier found issues",
+                    reason="Verifier found issues but Critic passed",
                     priority="high",
                     specific_instructions="Verify all factual claims with sources",
                 )
             )
-        elif matrix_action == "FULL_REGENERATION":
+        elif matrix_action == Verdict.REJECT:
             revisions.append(
                 Revision(
                     category="Complete Regeneration",
@@ -727,6 +769,16 @@ class ReviewerAgent:
                     reason="Both Verifier and Critic failed",
                     priority="critical",
                     specific_instructions="Regenerate from Planner phase",
+                )
+            )
+        elif matrix_action == Verdict.ESCALATE:
+            revisions.append(
+                Revision(
+                    category="Escalation",
+                    description="Escalate to Quality Arbiter for resolution",
+                    reason="Tier 4 disagreement between Verifier and Critic",
+                    priority="critical",
+                    specific_instructions="Quality Arbiter must arbitrate before proceeding",
                 )
             )
 
@@ -792,15 +844,31 @@ class ReviewerAgent:
             if context.revision_count > 0:
                 summary += f" after {context.revision_count} revision(s)"
             summary += ". Ready for formatting."
+        elif verdict == Verdict.PASS_WITH_CAVEATS:
+            summary = "Output accepted with caveats"
+            if context.revision_count > 0:
+                summary += f" after {context.revision_count} revision(s)"
+            summary += ". Minor issues noted but output is usable."
+        elif verdict == Verdict.REVISE:
+            summary = "Output requires revision"
+            if context.revision_count >= context.max_revisions:
+                summary += " (max revisions reached - accepting best effort)"
+            else:
+                summary += f" ({context.revision_count + 1}/{context.max_revisions})"
+        elif verdict == Verdict.REJECT:
+            summary = "Output rejected due to critical issues. Full regeneration required."
+        elif verdict == Verdict.ESCALATE:
+            summary = "Escalating to Quality Arbiter for Tier 4 arbitration."
         else:
-            summary = f"Output requires revision"
+            # Backward compat for FAIL
+            summary = "Output requires revision"
             if context.revision_count >= context.max_revisions:
                 summary += " (max revisions reached - accepting best effort)"
             else:
                 summary += f" ({context.revision_count + 1}/{context.max_revisions})"
 
         if reasons:
-            primary_reason = reasons[0] if reasons else ""
+            primary_reason = reasons[0]
             summary += f" Primary reason: {primary_reason}"
 
         return summary

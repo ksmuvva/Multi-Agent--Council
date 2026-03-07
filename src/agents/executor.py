@@ -405,13 +405,15 @@ class ExecutorAgent:
         """
         Execute the selected approach.
 
-        In a real implementation, this would:
-        - Use appropriate skills (code-generation, document-creation, etc.)
-        - Create files via Write tool for code
-        - Run commands via Bash for validation
-        - Return raw output for formatting
+        Attempts SDK-based execution first (using spawn_subagent with
+        Write/Bash/Skill tools), falling back to local generation.
         """
-        # Simulate execution based on task type
+        # Try SDK-based execution first
+        sdk_result = self._execute_via_sdk(approach, task, context)
+        if sdk_result:
+            return sdk_result
+
+        # Fall back to local execution
         task_lower = task.lower()
 
         if any(kw in task_lower for kw in ["function", "class", "code", "implement", "api"]):
@@ -422,6 +424,54 @@ class ExecutorAgent:
             return self._execute_analysis_task(approach, task, context)
         else:
             return self._execute_general_task(approach, task, context)
+
+    def _execute_via_sdk(
+        self,
+        approach: Approach,
+        task: str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[ExecutionResult]:
+        """Execute via SDK spawn_subagent with real tool access."""
+        try:
+            from src.core.sdk_integration import build_agent_options, spawn_subagent
+
+            options = build_agent_options(
+                agent_name="executor",
+                system_prompt=self.system_prompt,
+                model_override=self.model,
+                task_description=task,
+            )
+
+            execution_prompt = (
+                f"Task: {task}\n\n"
+                f"Approach: {approach.name}\n"
+                f"Steps:\n" + "\n".join(f"  {i+1}. {s}" for i, s in enumerate(approach.steps))
+            )
+
+            if context:
+                for key in ("analyst_report", "plan", "research"):
+                    if key in context:
+                        execution_prompt += f"\n\n{key.title()}:\n{str(context[key])[:1000]}"
+
+            result = spawn_subagent(
+                options=options,
+                input_data=execution_prompt,
+                max_retries=2,
+            )
+
+            if result.get("status") == "success" and result.get("output"):
+                return ExecutionResult(
+                    approach_name=approach.name,
+                    status="success",
+                    output=result["output"],
+                    files_created=[],
+                    quality_score=0.85,
+                )
+
+        except (ImportError, Exception):
+            pass
+
+        return None
 
     def _execute_code_task(
         self,

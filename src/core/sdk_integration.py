@@ -154,6 +154,25 @@ def _get_output_schema(agent_name: str) -> Optional[Dict[str, Any]]:
 # Agent Configuration Builder
 # =============================================================================
 
+def _build_skill_prompt_section(skills: List[str]) -> str:
+    """
+    Build a system prompt section listing available skills (FR-025).
+
+    Args:
+        skills: List of skill names available to the agent
+
+    Returns:
+        Formatted string for injection into append_system_prompt
+    """
+    if not skills:
+        return ""
+
+    lines = ["", "You have access to the following skills via the Skill tool:"]
+    for skill in skills:
+        lines.append(f'- {skill}: Load with `Skill("{skill}")`')
+    return "\n".join(lines)
+
+
 def build_agent_options(
     agent_name: str,
     system_prompt: str,
@@ -162,6 +181,7 @@ def build_agent_options(
     max_turns_override: Optional[int] = None,
     extra_tools: Optional[List[str]] = None,
     extra_system_prompt: Optional[str] = None,
+    task_description: Optional[str] = None,
 ) -> ClaudeAgentOptions:
     """
     Build ClaudeAgentOptions for a specific agent.
@@ -174,6 +194,7 @@ def build_agent_options(
         max_turns_override: Override max turns
         extra_tools: Additional tools beyond the default set
         extra_system_prompt: Additional system prompt instructions
+        task_description: Optional task description for per-task skill override (FR-028)
 
     Returns:
         Configured ClaudeAgentOptions
@@ -218,6 +239,24 @@ def build_agent_options(
     if agent_name == "executor":
         permission_mode = PermissionMode.ACCEPT_EDITS
 
+    # Resolve skills: use per-task override (FR-028) when task_description
+    # is provided, otherwise fall back to agent defaults
+    if task_description:
+        skills = get_skills_for_task(task_description, agent_name)
+    else:
+        skills = get_skills_for_agent(agent_name)
+
+    # Build the append_system_prompt with skill references (FR-025)
+    append_parts: List[str] = []
+    if extra_system_prompt:
+        append_parts.append(extra_system_prompt)
+
+    skill_section = _build_skill_prompt_section(skills)
+    if skill_section:
+        append_parts.append(skill_section)
+
+    final_append = "\n".join(append_parts) if append_parts else None
+
     return ClaudeAgentOptions(
         name=display_name,
         model=model,
@@ -227,7 +266,7 @@ def build_agent_options(
         output_format=output_format,
         setting_sources=["user", "project"],
         permission_mode=permission_mode,
-        append_system_prompt=extra_system_prompt,
+        append_system_prompt=final_append,
     )
 
 
@@ -494,22 +533,140 @@ def create_sdk_mcp_server() -> Dict[str, Any]:
 # Skill Integration
 # =============================================================================
 
+AGENT_SKILLS: Dict[str, List[str]] = {
+    "executor": ["code-generation"],
+    "formatter": ["document-creation"],
+    "analyst": ["requirements-engineering"],
+    "planner": ["architecture-design"],
+    "researcher": ["web-research"],
+    "code_reviewer": ["code-generation"],
+    "orchestrator": ["multi-agent-reasoning"],
+}
+
+
+# Task keyword to skill mapping for per-task skill override (FR-028)
+_TASK_KEYWORD_SKILLS: Dict[str, List[str]] = {
+    "architecture": ["architecture-design"],
+    "design": ["architecture-design"],
+    "test": ["test-case-generation"],
+    "document": ["document-creation"],
+    "report": ["document-creation"],
+    "research": ["web-research"],
+    "search": ["web-research"],
+}
+
+
+# =============================================================================
+# Configurable Skill Chains (FR-029)
+# =============================================================================
+
+SKILL_CHAINS: Dict[str, List[str]] = {
+    "full_development": [
+        "requirements-engineering",
+        "architecture-design",
+        "code-generation",
+        "test-case-generation",
+        "document-creation",
+    ],
+    "research_and_report": [
+        "web-research",
+        "requirements-engineering",
+        "document-creation",
+    ],
+    "code_review": [
+        "code-generation",
+        "test-case-generation",
+    ],
+    "documentation": [
+        "requirements-engineering",
+        "document-creation",
+    ],
+}
+
+# Keywords that map to skill chains for auto-selection
+_CHAIN_KEYWORDS: Dict[str, List[str]] = {
+    "full_development": ["develop", "build", "implement", "create application", "full stack"],
+    "research_and_report": ["research", "investigate", "study", "analyze and report"],
+    "code_review": ["review code", "code review", "audit code", "check code"],
+    "documentation": ["document", "write docs", "documentation", "write report"],
+}
+
+
 def get_skills_for_agent(agent_name: str) -> List[str]:
     """
     Get the skill names that should be loaded for an agent.
 
     Maps agents to their assigned skills from the skill system.
     """
-    AGENT_SKILLS: Dict[str, List[str]] = {
-        "executor": ["code-generation"],
-        "formatter": ["document-creation"],
-        "analyst": ["requirements-engineering"],
-        "planner": ["architecture-design"],
-        "researcher": ["web-research"],
-        "code_reviewer": ["code-generation"],
-        "orchestrator": ["multi-agent-reasoning"],
-    }
-    return AGENT_SKILLS.get(agent_name, [])
+    return list(AGENT_SKILLS.get(agent_name, []))
+
+
+def get_skills_for_task(task_description: str, agent_name: str) -> List[str]:
+    """
+    Get skills for an agent based on the task description (FR-028).
+
+    Starts with the agent's default skills and adds additional skills
+    detected from task keyword analysis.
+
+    Args:
+        task_description: The task description to analyze for relevant skills
+        agent_name: The agent that will execute the task
+
+    Returns:
+        Combined, deduplicated list of skill names
+    """
+    # Start with agent defaults
+    skills = get_skills_for_agent(agent_name)
+
+    # Analyze task description for additional skills
+    task_lower = task_description.lower()
+    for keyword, keyword_skills in _TASK_KEYWORD_SKILLS.items():
+        if keyword in task_lower:
+            for skill in keyword_skills:
+                if skill not in skills:
+                    skills.append(skill)
+
+    return skills
+
+
+def get_skill_chain(chain_name: str) -> List[str]:
+    """
+    Get the ordered skill sequence for a named skill chain (FR-029).
+
+    Args:
+        chain_name: Name of the skill chain (e.g., "full_development")
+
+    Returns:
+        Ordered list of skill names in the chain, or empty list if not found
+    """
+    return list(SKILL_CHAINS.get(chain_name, []))
+
+
+def select_skill_chain(task_description: str) -> Optional[str]:
+    """
+    Auto-select a skill chain based on task keywords (FR-029).
+
+    Analyzes the task description and returns the best matching
+    chain name, or None if no chain matches.
+
+    Args:
+        task_description: The task description to analyze
+
+    Returns:
+        Chain name if a match is found, None otherwise
+    """
+    task_lower = task_description.lower()
+
+    best_chain: Optional[str] = None
+    best_score = 0
+
+    for chain_name, keywords in _CHAIN_KEYWORDS.items():
+        score = sum(1 for kw in keywords if kw in task_lower)
+        if score > best_score:
+            best_score = score
+            best_chain = chain_name
+
+    return best_chain if best_score > 0 else None
 
 
 def get_skills_for_sme(persona_id: str) -> List[str]:

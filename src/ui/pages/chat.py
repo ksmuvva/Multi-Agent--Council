@@ -336,31 +336,78 @@ def render_streaming_response(
     agent_name: str = "Assistant",
 ) -> str:
     """
-    Render a streaming response.
+    Render a streaming response with real-time character output.
 
     Args:
-        response_generator: Generator yielding response chunks
+        response_generator: Generator yielding response chunks (str or dict with 'text')
         agent_name: Name of the responding agent
 
     Returns:
         The complete response
     """
     with st.chat_message("assistant"):
-        st.caption(f"🤖 **{agent_name}**")
+        st.caption(f"**{agent_name}**")
 
-        # Placeholder for streaming content
         placeholder = st.empty()
         full_response = ""
 
-        # Stream response
         for chunk in response_generator:
-            full_response += chunk
-            placeholder.markdown(full_response + "▌")
+            if isinstance(chunk, dict):
+                text = chunk.get("text", chunk.get("content", str(chunk)))
+            else:
+                text = str(chunk)
 
-        # Final update without cursor
+            full_response += text
+            placeholder.markdown(full_response + "**|**")
+
         placeholder.markdown(full_response)
 
     return full_response
+
+
+def stream_orchestrator_response(prompt: str, tier: int, options: Dict[str, Any]):
+    """
+    Generator that streams the orchestrator response phase by phase.
+
+    Yields chunks of text as agents complete for real-time display.
+    """
+    try:
+        from src.agents.orchestrator import create_orchestrator
+
+        orchestrator = create_orchestrator(
+            max_budget_usd=options.get("budget", 10.0),
+            verbose=options.get("verbose", False),
+        )
+
+        yield f"**Tier {tier}** processing started...\n\n"
+
+        result = orchestrator.execute(
+            user_prompt=prompt,
+            tier_level=tier,
+            format="markdown",
+        )
+
+        output = result.get("formatted_output", result.get("response", ""))
+        if output:
+            chunk_size = 50
+            for i in range(0, len(output), chunk_size):
+                yield output[i:i + chunk_size]
+                time.sleep(0.02)
+        else:
+            yield "No response generated."
+
+        metadata = result.get("metadata", {})
+        if metadata:
+            yield f"\n\n---\n*Cost: ${metadata.get('total_cost_usd', 0):.4f} | "
+            yield f"Duration: {metadata.get('duration_seconds', 0):.1f}s | "
+            yield f"Agents: {len(metadata.get('agents_used', []))}*"
+
+    except ImportError:
+        yield f"Orchestrator not available. Generating mock response...\n\n"
+        mock = generate_mock_response(prompt, tier, "markdown")
+        yield mock
+    except Exception as e:
+        yield f"Error: {str(e)}"
 
 
 # =============================================================================
@@ -467,6 +514,61 @@ def render_chat_interface() -> None:
 # Processing
 # =============================================================================
 
+def _make_cost_event_handler():
+    """Create a handler that converts COST_RECORDED events into AgentCost objects."""
+    from datetime import datetime as _dt
+    from src.ui.components.cost_dashboard import AgentCost, ModelPricing, add_agent_cost
+
+    model_map = {
+        "haiku": ModelPricing.HAIKU,
+        "sonnet": ModelPricing.SONNET,
+        "opus": ModelPricing.OPUS,
+    }
+
+    def _handle_cost_event(event_data: Dict[str, Any]) -> None:
+        model_str = str(event_data.get("model", "sonnet")).lower()
+        model = ModelPricing.SONNET  # default
+        for key, val in model_map.items():
+            if key in model_str:
+                model = val
+                break
+
+        cost = AgentCost(
+            agent_name=event_data.get("agent_name", "unknown"),
+            model=model,
+            input_tokens=event_data.get("input_tokens", 0),
+            output_tokens=event_data.get("output_tokens", 0),
+            total_tokens=event_data.get("total_tokens", 0),
+            cost_usd=event_data.get("cost_usd", 0.0),
+            timestamp=_dt.now(),
+            tier=event_data.get("tier", 2),
+            phase=event_data.get("phase", ""),
+        )
+        add_agent_cost(cost)
+
+    return _handle_cost_event
+
+
+def _subscribe_event_bus() -> None:
+    """Subscribe the agent panel and cost dashboard handlers to the event bus."""
+    from src.core.events import agent_event_bus, EventType
+    from src.ui.components.agent_panel import handle_agent_event
+
+    # Only subscribe once per session
+    if st.session_state.get("_event_bus_subscribed"):
+        return
+
+    # Agent activity panel receives started/progress/completed/failed events
+    for evt in (EventType.AGENT_STARTED, EventType.AGENT_PROGRESS,
+                EventType.AGENT_COMPLETED, EventType.AGENT_FAILED):
+        agent_event_bus.subscribe(evt, handle_agent_event)
+
+    # Cost dashboard receives cost events
+    agent_event_bus.subscribe(EventType.COST_RECORDED, _make_cost_event_handler())
+
+    st.session_state["_event_bus_subscribed"] = True
+
+
 def process_user_input(prompt: str, options: Dict[str, Any]) -> None:
     """
     Process user input through the multi-agent system.
@@ -475,6 +577,9 @@ def process_user_input(prompt: str, options: Dict[str, Any]) -> None:
         prompt: User's input prompt
         options: Processing options
     """
+    # Wire the event bus so orchestrator events flow to UI components
+    _subscribe_event_bus()
+
     # Get last chat options
     chat_options = st.session_state.get("last_chat_options", {})
 
@@ -507,12 +612,28 @@ def process_user_input(prompt: str, options: Dict[str, Any]) -> None:
 
     add_message(user_message)
 
-    # Rerun to show user message
+    # Rerun to show user message, then stream response
     st.rerun()
 
-    # TODO: Integrate with actual orchestrator
-    # For now, simulate response
-    simulate_agent_response(prompt, tier, output_format, options)
+    # Use streaming orchestrator when available, fall back to simulation
+    try:
+        response = render_streaming_response(
+            stream_orchestrator_response(full_prompt, tier, options),
+            agent_name="Multi-Agent System",
+        )
+        # Store the streamed response as a message
+        assistant_message = ChatMessage(
+            message_id=f"msg_{int(time.time() * 1000000)}",
+            role=MessageRole.ASSISTANT,
+            content=response,
+            timestamp=datetime.now(),
+            status=MessageStatus.COMPLETED,
+            tier=tier,
+            metadata={"tier": tier, "streamed": True},
+        )
+        add_message(assistant_message)
+    except Exception:
+        simulate_agent_response(full_prompt, tier, output_format, options)
 
 
 def simulate_agent_response(
