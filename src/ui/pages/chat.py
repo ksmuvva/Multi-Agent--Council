@@ -285,6 +285,32 @@ def render_message(message: ChatMessage) -> None:
                     if message.metadata.get("cost"):
                         st.caption(f"Cost: ${message.metadata['cost']:.4f}")
 
+            # Artifact download buttons
+            if message.artifacts:
+                for artifact in message.artifacts:
+                    a_name = artifact.get("name", "artifact")
+                    a_content = artifact.get("content", "")
+                    a_type = artifact.get("type", "file")
+                    if a_type == "file" and artifact.get("path"):
+                        a_path = Path(artifact["path"])
+                        if a_path.exists():
+                            with open(a_path, "rb") as f:
+                                st.download_button(
+                                    label=f"Download {a_name}",
+                                    data=f.read(),
+                                    file_name=a_path.name,
+                                    mime="application/octet-stream",
+                                    key=f"dl_{message.message_id}_{a_name}",
+                                )
+                    elif a_content:
+                        st.download_button(
+                            label=f"Download {a_name}",
+                            data=a_content,
+                            file_name=a_name,
+                            mime="text/plain",
+                            key=f"dl_{message.message_id}_{a_name}",
+                        )
+
     elif role == MessageRole.AGENT:
         with st.chat_message("assistant"):
             # Agent-specific header
@@ -456,12 +482,27 @@ def process_user_input(prompt: str, options: Dict[str, Any]) -> None:
     output_format = chat_options.get("format", "markdown")
     file_upload = chat_options.get("file")
 
+    # Read uploaded file content and include it
+    file_content = None
+    file_name = None
+    if file_upload is not None:
+        file_content = file_upload.read().decode("utf-8", errors="replace")
+        file_name = file_upload.name
+
+    # Build prompt with file context if attached
+    full_prompt = prompt
+    if file_content:
+        full_prompt = (
+            f"{prompt}\n\n--- Attached File: {file_name} ---\n{file_content}"
+        )
+
     # Create user message
     user_message = ChatMessage(
         message_id=f"msg_{int(time.time() * 1000000)}",
         role=MessageRole.USER,
-        content=prompt,
+        content=full_prompt,
         timestamp=datetime.now(),
+        metadata={"attached_file": file_name} if file_name else {},
     )
 
     add_message(user_message)
@@ -516,6 +557,32 @@ def simulate_agent_response(
         "tokens": 150 + tier * 100,
         "cost": 0.01 + tier * 0.005,
     }
+
+    # Show download buttons for any artifacts in the response
+    if processing_message.artifacts:
+        for artifact in processing_message.artifacts:
+            artifact_name = artifact.get("name", "artifact")
+            artifact_content = artifact.get("content", "")
+            artifact_type = artifact.get("type", "file")
+            if artifact_type == "file" and artifact.get("path"):
+                file_path = Path(artifact["path"])
+                if file_path.exists():
+                    with open(file_path, "rb") as f:
+                        st.download_button(
+                            label=f"Download {artifact_name}",
+                            data=f.read(),
+                            file_name=file_path.name,
+                            mime="application/octet-stream",
+                            key=f"dl_{processing_message.message_id}_{artifact_name}",
+                        )
+            elif artifact_content:
+                st.download_button(
+                    label=f"Download {artifact_name}",
+                    data=artifact_content,
+                    file_name=artifact_name,
+                    mime="text/plain",
+                    key=f"dl_{processing_message.message_id}_{artifact_name}",
+                )
 
     st.rerun()
 

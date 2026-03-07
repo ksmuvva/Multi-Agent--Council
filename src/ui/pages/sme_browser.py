@@ -326,22 +326,35 @@ def render_sme_browser() -> None:
 
 def render_persona_cards(personas: List[SMEPersona]) -> None:
     """Render personas as cards."""
+    # Determine active SMEs from session state
+    active_smes = st.session_state.get("active_smes", st.session_state.get("last_active_smes", []))
+
     cols = st.columns(2)
 
     for i, persona in enumerate(personas):
         with cols[i % 2]:
+            is_active = persona.persona_id in active_smes or persona.name in active_smes
+            border_color = "#28a745" if is_active else "#e0e0e0"
+            border_width = "2px" if is_active else "1px"
+            active_badge_html = (
+                '<span style="background: #28a745; color: white; padding: 2px 10px; '
+                'border-radius: 10px; font-size: 11px; margin-left: 8px; font-weight: bold;">'
+                'ACTIVE</span>'
+                if is_active else ""
+            )
+
             st.markdown(f"""
             <div style="
-                border: 1px solid #e0e0e0;
+                border: {border_width} solid {border_color};
                 border-radius: 12px;
                 padding: 16px;
                 margin-bottom: 16px;
-                background: white;
+                background: {"#f0fff0" if is_active else "white"};
             ">
                 <div style="display: flex; align-items: center; margin-bottom: 12px;">
                     <span style="font-size: 32px; margin-right: 12px;">{persona.icon}</span>
                     <div>
-                        <h4 style="margin: 0;">{persona.name}</h4>
+                        <h4 style="margin: 0;">{persona.name}{active_badge_html}</h4>
                         <small style="color: {persona.color};">{persona.domain}</small>
                     </div>
                 </div>

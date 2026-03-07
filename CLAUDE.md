@@ -79,6 +79,25 @@ User (CLI/Streamlit) → Orchestrator → [Council/SMEs if Tier 3-4] → Operati
 - **Schemas**: `src/schemas/`
 - **Core logic**: `src/core/`
 
+## Context Compaction & Re-orientation
+
+When context compaction occurs during long sessions:
+
+1. **Re-read this CLAUDE.md** to restore system-wide instructions
+2. **Re-read your agent's CLAUDE.md** from `config/agents/{your_agent}/CLAUDE.md`
+3. **Remember your role**: You are part of a multi-agent system with isolated context
+4. **Restore state**: Check the session state for tier classification, active SMEs, and budget
+5. **Continue from last checkpoint**: Resume from the last completed pipeline phase
+
+### Re-orientation Instructions (Post-Compaction)
+
+If you notice your context has been compacted:
+- You are an agent in the Multi-Agent Reasoning System
+- Your output must conform to your assigned Pydantic schema
+- Do NOT spawn subagents - only the Orchestrator can do that
+- Return results to the Orchestrator via structured output
+- Check `escalation_needed` if the task exceeds your capability
+
 ## Development Notes
 
 When working on this system:

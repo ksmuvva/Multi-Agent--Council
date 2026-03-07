@@ -197,6 +197,33 @@ def render_skills_catalogue() -> None:
             render_skill_card(skill)
 
 
+# Mapping of skill names to the agents that use them
+SKILL_AGENT_MAP: Dict[str, List[str]] = {
+    "code-generation": ["Executor", "Code Reviewer"],
+    "document-creation": ["Formatter"],
+    "test-case-generation": ["Test Engineer SME"],
+    "web-research": ["Researcher"],
+    "requirements-engineering": ["Analyst", "Business Analyst SME"],
+    "architecture-design": ["Planner", "Cloud Architect SME"],
+    "multi-agent-reasoning": ["Orchestrator"],
+}
+
+# SME registry for skill_files lookup
+SME_SKILL_MAP: Dict[str, List[str]] = {
+    "sailpoint-test-engineer": ["IAM Architect"],
+    "azure-architect": ["IAM Architect", "Cloud Architect"],
+    "aws-solutions-architect": ["Cloud Architect"],
+    "security-specialist": ["Security Analyst"],
+    "data-engineering": ["Data Engineer"],
+    "ml-engineering": ["AI/ML Engineer"],
+    "test-automation": ["Test Engineer"],
+    "business-analysis": ["Business Analyst"],
+    "technical-writing": ["Technical Writer"],
+    "devops-engineering": ["DevOps Engineer"],
+    "frontend-development": ["Frontend Developer"],
+}
+
+
 def render_skill_card(skill: Dict[str, Any]) -> None:
     """Render a single skill card."""
     name = skill.get("name", "Unknown")
@@ -223,6 +250,32 @@ def render_skill_card(skill: Dict[str, Any]) -> None:
     </div>
     """, unsafe_allow_html=True)
 
+    # Agent assignments
+    agents = SKILL_AGENT_MAP.get(name, [])
+    if agents:
+        agents_html = " ".join([
+            f"<span style='background: #007bff20; color: #007bff; padding: 2px 8px; "
+            f"border-radius: 12px; font-size: 11px; margin-right: 4px;'>{agent}</span>"
+            for agent in agents
+        ])
+        st.markdown(
+            f"<div style='margin-bottom: 6px;'><strong style='font-size: 12px;'>Agents:</strong> {agents_html}</div>",
+            unsafe_allow_html=True,
+        )
+
+    # SME persona assignments
+    sme_users = SME_SKILL_MAP.get(name, [])
+    if sme_users:
+        sme_html = " ".join([
+            f"<span style='background: #28a74520; color: #28a745; padding: 2px 8px; "
+            f"border-radius: 12px; font-size: 11px; margin-right: 4px;'>{sme}</span>"
+            for sme in sme_users
+        ])
+        st.markdown(
+            f"<div style='margin-bottom: 6px;'><strong style='font-size: 12px;'>SMEs:</strong> {sme_html}</div>",
+            unsafe_allow_html=True,
+        )
+
     # Tags
     if tags:
         tags_html = " ".join([
@@ -232,8 +285,25 @@ def render_skill_card(skill: Dict[str, Any]) -> None:
         ])
         st.markdown(f"<div style='margin-bottom: 8px;'>{tags_html}</div>", unsafe_allow_html=True)
 
+    # SKILL.md content preview
+    skill_path = skill.get("path", "")
+    if skill_path:
+        skill_content = get_skill_content(Path(skill_path).name)
+        if skill_content:
+            # Strip frontmatter for preview
+            body = skill_content
+            if body.startswith("---"):
+                end_marker = body.find("\n---", 3)
+                if end_marker > 0:
+                    body = body[end_marker + 4:].strip()
+            preview = body[:500]
+            if len(body) > 500:
+                preview += "..."
+            with st.expander("SKILL.md Preview"):
+                st.markdown(preview)
+
     # View details button
-    if st.button(f"📖 View Details", key=f"view_{skill.get('path', '')}"):
+    if st.button(f"View Details", key=f"view_{skill.get('path', '')}"):
         render_skill_detail(skill)
 
 

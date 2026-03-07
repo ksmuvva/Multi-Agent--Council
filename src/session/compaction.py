@@ -389,6 +389,18 @@ class ContextCompactor:
         session.messages = compacted_messages
         session.updated_at = datetime.now()
 
+        # Re-read CLAUDE.md for re-orientation post-compaction
+        reorientation = self._build_reorientation_prompt(session)
+
+        # Add re-orientation as a system message
+        reorientation_message = ChatMessage(
+            role="system",
+            content=reorientation,
+            timestamp=datetime.now(),
+            metadata={"compaction": "reorientation", "auto_compaction": True},
+        )
+        session.messages.insert(0, reorientation_message)
+
         # Add summary as a system message
         summary_message = ChatMessage(
             role="system",
@@ -396,7 +408,7 @@ class ContextCompactor:
             timestamp=datetime.now(),
             metadata={"compaction": "true", "tokens_removed": tokens_removed},
         )
-        session.messages.insert(0, summary_message)
+        session.messages.insert(1, summary_message)
 
         self._logger.info(
             "compaction_complete",
@@ -408,6 +420,56 @@ class ContextCompactor:
         )
 
         return result
+
+    def _build_reorientation_prompt(self, session: SessionState) -> str:
+        """
+        Build a re-orientation prompt by re-reading CLAUDE.md files.
+
+        This ensures agents can recover context after compaction.
+        """
+        reorientation_parts = [
+            "# Context Compaction - Re-orientation",
+            "",
+            "Your context has been compacted. Here is your re-orientation:",
+            "",
+        ]
+
+        # Re-read global CLAUDE.md
+        try:
+            from pathlib import Path
+            claude_md = Path("CLAUDE.md")
+            if claude_md.exists():
+                content = claude_md.read_text(encoding="utf-8")
+                # Extract key sections
+                reorientation_parts.append("## System Overview (from CLAUDE.md)")
+                reorientation_parts.append("")
+                # Get first 500 chars of key info
+                for line in content.split("\n"):
+                    if line.startswith("## ") or line.startswith("# "):
+                        reorientation_parts.append(line)
+                    elif "Re-orientation" in line or "re-read" in line.lower():
+                        reorientation_parts.append(line)
+        except Exception:
+            pass
+
+        # Add session state
+        reorientation_parts.extend([
+            "",
+            "## Current Session State",
+            f"- Session ID: {session.session_id}",
+            f"- Tier: {session.tier}",
+            f"- Total Cost: ${session.total_cost_usd:.4f}",
+            f"- Active Agents: {', '.join(session.active_agents) if session.active_agents else 'None'}",
+            f"- Current Phase: {session.current_phase or 'Unknown'}",
+            "",
+            "## Instructions",
+            "- Your output must conform to your assigned Pydantic schema",
+            "- Do NOT spawn subagents - only the Orchestrator can do that",
+            "- Return results via structured output",
+            "- Set `escalation_needed: true` if the task exceeds your capability",
+        ])
+
+        return "\n".join(reorientation_parts)
 
     def estimate_tokens(self, session: SessionState) -> int:
         """Estimate tokens in session."""

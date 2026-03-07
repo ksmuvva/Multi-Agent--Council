@@ -533,6 +533,60 @@ def execute_tool(
 
 
 # =============================================================================
+# MCP Server Registration
+# =============================================================================
+
+_mcp_server_instance = None
+
+
+def create_and_register_mcp_server() -> Dict[str, Any]:
+    """
+    Create and register the MCP server with the Claude Agent SDK.
+
+    Returns the server configuration for use in agent allowedTools.
+    This should be called once at system startup.
+    """
+    global _mcp_server_instance
+
+    if _mcp_server_instance is not None:
+        return _mcp_server_instance
+
+    tools = get_all_tools()
+
+    # Build MCP-compatible tool definitions
+    mcp_tools = []
+    for name, metadata in tools.items():
+        tool_def = {
+            "name": f"mcp__multi_agent__{name}",
+            "description": metadata.description,
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    param: {"type": "string", "description": desc}
+                    for param, desc in metadata.parameters.items()
+                },
+            },
+        }
+        mcp_tools.append(tool_def)
+
+    _mcp_server_instance = {
+        "server_name": "multi-agent-reasoning",
+        "version": "1.0.0",
+        "tools": mcp_tools,
+        "tool_count": len(mcp_tools),
+        "registered": True,
+    }
+
+    return _mcp_server_instance
+
+
+def get_mcp_tool_names() -> List[str]:
+    """Get the list of MCP tool names for use in allowedTools."""
+    server = create_and_register_mcp_server()
+    return [t["name"] for t in server.get("tools", [])]
+
+
+# =============================================================================
 # Convenience Functions
 # =============================================================================
 

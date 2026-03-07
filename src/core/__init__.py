@@ -108,6 +108,20 @@ from .ensemble import (
     create_requirements_workshop,
 )
 
+# =============================================================================
+# SDK Integration
+# =============================================================================
+from .sdk_integration import (
+    ClaudeAgentOptions,
+    PermissionMode,
+    AGENT_ALLOWED_TOOLS,
+    build_agent_options,
+    spawn_subagent,
+    create_sdk_mcp_server,
+    get_skills_for_agent,
+    get_skills_for_sme,
+)
+
 __all__ = [
     # Complexity
     "TierLevel",
@@ -181,4 +195,13 @@ __all__ = [
     "create_research_council",
     "create_document_assembly",
     "create_requirements_workshop",
+    # SDK Integration
+    "ClaudeAgentOptions",
+    "PermissionMode",
+    "AGENT_ALLOWED_TOOLS",
+    "build_agent_options",
+    "spawn_subagent",
+    "create_sdk_mcp_server",
+    "get_skills_for_agent",
+    "get_skills_for_sme",
 ]

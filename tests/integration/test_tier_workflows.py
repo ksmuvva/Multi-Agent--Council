@@ -3,8 +3,12 @@ Integration Tests for Tier Workflows
 
 Tests end-to-end agent workflows for each tier level.
 These tests use mocked SDK responses but validate the full orchestration flow.
+
+Gated by MAS_RUN_INTEGRATION=true environment variable.
+Set MAS_RUN_INTEGRATION=true to run these tests with live API calls.
 """
 
+import os
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
@@ -15,6 +19,13 @@ from tests.conftest import (
     MOCK_AGENT_RESPONSES,
     TestDataBuilder,
     MockSDKPatch,
+)
+
+# Gate all integration tests behind MAS_RUN_INTEGRATION env var
+_run_integration = os.environ.get("MAS_RUN_INTEGRATION", "false").lower() == "true"
+pytestmark = pytest.mark.skipif(
+    not _run_integration,
+    reason="Integration tests disabled. Set MAS_RUN_INTEGRATION=true to enable."
 )
 
 
