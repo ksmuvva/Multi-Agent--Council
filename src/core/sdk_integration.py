@@ -101,9 +101,9 @@ AGENT_ALLOWED_TOOLS: Dict[str, List[str]] = {
         "Read", "Write", "Glob",
     ],
     # Council Agents
-    "council_chair": [],
-    "quality_arbiter": [],
-    "ethics_advisor": [],
+    "council_chair": ["Read", "Skill"],
+    "quality_arbiter": ["Read", "Skill"],
+    "ethics_advisor": ["Read", "Skill"],
     # SME Personas (base set - extended per-persona)
     "sme_default": [
         "Read", "Glob", "Grep", "Skill",
