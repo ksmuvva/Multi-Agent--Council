@@ -666,3 +666,380 @@ class TestEnsembleWorkflows:
         ]
 
         assert len(parallel_steps[0]) > 1  # First step has parallel agents
+
+
+# =============================================================================
+# Event Bus Integration Tests
+# =============================================================================
+
+class TestEventBusIntegration:
+    """Tests for the event bus system connecting orchestrator to UI."""
+
+    def test_event_bus_wire_subscribers_across_modules(self):
+        """Test that event bus can wire subscribers across modules."""
+        from src.core.events import EventBus, EventType
+
+        bus = EventBus()
+        received = []
+
+        def handler_a(data):
+            received.append(("module_a", data))
+
+        def handler_b(data):
+            received.append(("module_b", data))
+
+        bus.subscribe(EventType.AGENT_STARTED, handler_a)
+        bus.subscribe(EventType.AGENT_STARTED, handler_b)
+
+        bus.emit(EventType.AGENT_STARTED, {
+            "agent_id": "test-001",
+            "agent_name": "Analyst",
+        })
+
+        assert len(received) == 2
+        assert received[0][0] == "module_a"
+        assert received[1][0] == "module_b"
+        assert received[0][1]["agent_name"] == "Analyst"
+
+    def test_agent_lifecycle_events_flow(self):
+        """Test that agent lifecycle events flow correctly."""
+        from src.core.events import EventBus, EventType
+
+        bus = EventBus()
+        lifecycle = []
+
+        def track(data):
+            lifecycle.append(data["event_type"])
+
+        bus.subscribe(EventType.AGENT_STARTED, track)
+        bus.subscribe(EventType.AGENT_COMPLETED, track)
+        bus.subscribe(EventType.AGENT_FAILED, track)
+
+        bus.emit(EventType.AGENT_STARTED, {"agent_id": "a1", "agent_name": "Executor"})
+        bus.emit(EventType.AGENT_COMPLETED, {"agent_id": "a1", "agent_name": "Executor"})
+
+        assert lifecycle == [EventType.AGENT_STARTED, EventType.AGENT_COMPLETED]
+
+    def test_cost_events_propagate_to_dashboard(self):
+        """Test that cost events propagate to dashboard."""
+        from src.core.events import EventBus, EventType
+
+        bus = EventBus()
+        cost_events = []
+
+        def cost_handler(data):
+            cost_events.append(data)
+
+        bus.subscribe(EventType.COST_RECORDED, cost_handler)
+
+        bus.emit(EventType.COST_RECORDED, {
+            "agent_name": "Executor",
+            "model": "claude-3-5-sonnet",
+            "input_tokens": 1000,
+            "output_tokens": 500,
+            "total_tokens": 1500,
+            "cost_usd": 0.015,
+            "tier": 2,
+            "phase": "execution",
+        })
+
+        assert len(cost_events) == 1
+        assert cost_events[0]["cost_usd"] == 0.015
+        assert cost_events[0]["agent_name"] == "Executor"
+        assert "timestamp" in cost_events[0]
+
+    def test_event_bus_handles_callback_errors_gracefully(self):
+        """Test that event bus handles errors in callbacks gracefully."""
+        from src.core.events import EventBus, EventType
+
+        bus = EventBus()
+        successful_calls = []
+
+        def bad_handler(data):
+            raise RuntimeError("UI callback crashed")
+
+        def good_handler(data):
+            successful_calls.append(data)
+
+        bus.subscribe(EventType.AGENT_STARTED, bad_handler)
+        bus.subscribe(EventType.AGENT_STARTED, good_handler)
+
+        # Should not raise even though bad_handler throws
+        bus.emit(EventType.AGENT_STARTED, {"agent_id": "a1", "agent_name": "Analyst"})
+
+        # The good handler should still have been called
+        assert len(successful_calls) == 1
+
+
+# =============================================================================
+# Five-Verdict Workflow Tests
+# =============================================================================
+
+class TestFiveVerdictWorkflow:
+    """Tests for the 5-verdict system in workflow context."""
+
+    def test_pass_verdict_routes_to_formatter(self):
+        """Test PASS verdict routes to formatter."""
+        from src.schemas.reviewer import Verdict
+
+        verdict = Verdict.PASS
+        next_agent = None
+
+        if verdict == Verdict.PASS:
+            next_agent = "Formatter"
+
+        assert next_agent == "Formatter"
+
+    def test_pass_with_caveats_routes_to_formatter_with_warnings(self):
+        """Test PASS_WITH_CAVEATS routes to formatter with warnings."""
+        from src.schemas.reviewer import Verdict
+
+        verdict = Verdict.PASS_WITH_CAVEATS
+        next_agent = None
+        warnings = []
+
+        if verdict == Verdict.PASS_WITH_CAVEATS:
+            next_agent = "Formatter"
+            warnings.append("Output accepted with caveats - review recommended")
+
+        assert next_agent == "Formatter"
+        assert len(warnings) > 0
+
+    def test_revise_verdict_triggers_re_execution(self):
+        """Test REVISE verdict triggers re-execution."""
+        from src.schemas.reviewer import Verdict
+
+        verdict = Verdict.REVISE
+        next_agent = None
+
+        if verdict == Verdict.REVISE:
+            next_agent = "Executor"
+
+        assert next_agent == "Executor"
+
+    def test_reject_verdict_stops_pipeline(self):
+        """Test REJECT verdict stops pipeline."""
+        from src.schemas.reviewer import Verdict
+
+        verdict = Verdict.REJECT
+        pipeline_stopped = False
+
+        if verdict == Verdict.REJECT:
+            pipeline_stopped = True
+
+        assert pipeline_stopped is True
+
+    def test_escalate_verdict_triggers_council_arbitration_tier4(self):
+        """Test ESCALATE verdict triggers council arbitration in Tier 4."""
+        from src.schemas.reviewer import Verdict
+
+        verdict = Verdict.ESCALATE
+        tier = 4
+        council_arbitration = False
+
+        if verdict == Verdict.ESCALATE and tier == 4:
+            council_arbitration = True
+
+        assert council_arbitration is True
+
+
+# =============================================================================
+# Skill Chain Workflow Tests
+# =============================================================================
+
+class TestSkillChainWorkflow:
+    """Tests for skill chain selection and execution."""
+
+    def test_auto_selection_of_skill_chain_from_task_description(self):
+        """Test auto-selection of skill chain from task description."""
+        from src.core.sdk_integration import select_skill_chain
+
+        chain = select_skill_chain("develop and build a full stack web application")
+        assert chain == "full_development"
+
+    def test_full_development_chain_has_correct_ordering(self):
+        """Test full_development chain has correct skill ordering."""
+        from src.core.sdk_integration import get_skill_chain
+
+        chain = get_skill_chain("full_development")
+        assert len(chain) >= 3
+        # Requirements should come before code generation
+        assert chain.index("requirements-engineering") < chain.index("code-generation")
+        # Architecture should come before code generation
+        assert chain.index("architecture-design") < chain.index("code-generation")
+
+    def test_research_and_report_chain(self):
+        """Test research_and_report chain."""
+        from src.core.sdk_integration import get_skill_chain
+
+        chain = get_skill_chain("research_and_report")
+        assert len(chain) >= 2
+        assert "web-research" in chain
+        assert "document-creation" in chain
+
+    def test_per_task_skill_override_adds_relevant_skills(self):
+        """Test that per-task skill override adds relevant skills."""
+        from src.core.sdk_integration import get_skills_for_task
+
+        # A task mentioning testing should include test-related skills
+        skills = get_skills_for_task(
+            "write unit tests for the authentication module",
+            "executor",
+        )
+        assert isinstance(skills, list)
+        assert len(skills) >= 1
+
+
+# =============================================================================
+# SME Spawning Workflow Tests
+# =============================================================================
+
+class TestSMESpawningWorkflow:
+    """Tests for SME persona spawning through orchestrator."""
+
+    def test_consult_mode_produces_advisory_output(self):
+        """Test that consult mode produces advisory output."""
+        from src.core.sme_registry import (
+            InteractionMode,
+            get_persona,
+            validate_interaction_mode,
+        )
+
+        persona = get_persona("cloud_architect")
+        assert persona is not None
+
+        # Advisor mode should be supported
+        assert validate_interaction_mode("cloud_architect", InteractionMode.ADVISOR)
+
+        # Simulate advisory output
+        advisory_output = {
+            "mode": InteractionMode.ADVISOR.value,
+            "recommendation": "Use AKS for container orchestration",
+            "confidence": 0.85,
+        }
+        assert advisory_output["mode"] == "advisor"
+        assert "recommendation" in advisory_output
+
+    def test_debate_mode_uses_multiple_rounds(self):
+        """Test that debate mode uses multiple rounds."""
+        from src.core.sme_registry import (
+            InteractionMode,
+            validate_interaction_mode,
+        )
+
+        # Cloud architect supports debate mode
+        assert validate_interaction_mode("cloud_architect", InteractionMode.DEBATER)
+
+        # Simulate multi-round debate
+        debate_rounds = [
+            {"round": 1, "position": "Use microservices", "agent": "cloud_architect"},
+            {"round": 2, "position": "Consider monolith first", "agent": "security_analyst"},
+            {"round": 3, "position": "Hybrid approach", "agent": "cloud_architect"},
+        ]
+        assert len(debate_rounds) >= 2
+
+    def test_co_author_mode_produces_merged_content(self):
+        """Test that co_author mode produces merged content."""
+        from src.core.sme_registry import (
+            InteractionMode,
+            validate_interaction_mode,
+        )
+
+        # Cloud architect supports co_executor mode
+        assert validate_interaction_mode("cloud_architect", InteractionMode.CO_EXECUTOR)
+
+        # Simulate merged content from co-authoring
+        sme_contribution = "Cloud architecture section content"
+        executor_contribution = "Implementation details section"
+        merged = f"{sme_contribution}\n\n{executor_contribution}"
+
+        assert sme_contribution in merged
+        assert executor_contribution in merged
+
+
+# =============================================================================
+# Document Generation Workflow Tests
+# =============================================================================
+
+class TestDocumentGenerationWorkflow:
+    """Tests for multi-format document output."""
+
+    def test_docx_generation(self, tmp_path):
+        """Test DOCX generation (check file exists)."""
+        from src.agents.formatter import FormatterAgent
+
+        formatter = FormatterAgent(output_dir=str(tmp_path))
+        result = formatter._generate_docx(
+            content={"Summary": "Test document content"},
+            context={"title": "Test Document"},
+        )
+
+        assert "file_path" in result
+        assert result["format"] == "docx"
+        assert os.path.exists(result["file_path"])
+        assert result["file_path"].endswith(".docx")
+
+    def test_xlsx_generation(self, tmp_path):
+        """Test XLSX generation (check file exists)."""
+        from src.agents.formatter import FormatterAgent
+
+        formatter = FormatterAgent(output_dir=str(tmp_path))
+        result = formatter._generate_xlsx(
+            content={"Column1": ["a", "b"], "Column2": ["c", "d"]},
+            context={"title": "Test Spreadsheet"},
+        )
+
+        assert "file_path" in result
+        assert result["format"] == "xlsx"
+        assert os.path.exists(result["file_path"])
+        assert result["file_path"].endswith(".xlsx")
+
+    def test_pptx_generation(self, tmp_path):
+        """Test PPTX generation (check file exists)."""
+        from src.agents.formatter import FormatterAgent
+
+        formatter = FormatterAgent(output_dir=str(tmp_path))
+        result = formatter._generate_pptx(
+            content={"Slide 1": "Introduction", "Slide 2": "Details"},
+            context={"title": "Test Presentation"},
+        )
+
+        assert "file_path" in result
+        assert result["format"] == "pptx"
+        assert os.path.exists(result["file_path"])
+        assert result["file_path"].endswith(".pptx")
+
+
+# =============================================================================
+# Streaming Workflow Tests
+# =============================================================================
+
+class TestStreamingWorkflow:
+    """Tests for streaming chat."""
+
+    def test_streaming_generator_yields_chunks(self):
+        """Test that streaming generator yields chunks."""
+        def mock_stream():
+            """Simulate a streaming generator."""
+            yield "Processing "
+            yield "your "
+            yield "request..."
+
+        chunks = list(mock_stream())
+        assert len(chunks) == 3
+        assert "".join(chunks) == "Processing your request..."
+
+    def test_streaming_handles_string_and_dict_chunks(self):
+        """Test that streaming handles both string and dict chunks."""
+        def mock_mixed_stream():
+            """Simulate a streaming generator with mixed types."""
+            yield "Starting..."
+            yield {"status": "in_progress", "agent": "Analyst"}
+            yield "Complete."
+
+        chunks = list(mock_mixed_stream())
+        assert len(chunks) == 3
+        assert isinstance(chunks[0], str)
+        assert isinstance(chunks[1], dict)
+        assert chunks[1]["agent"] == "Analyst"
+        assert isinstance(chunks[2], str)

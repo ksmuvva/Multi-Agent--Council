@@ -93,11 +93,11 @@ class TestReviewerInitialization:
         assert agent.max_turns == 30
 
     def test_verdict_matrix_configured(self):
-        """Test verdict matrix is properly configured."""
+        """Test verdict matrix is properly configured with Verdict enum values."""
         agent = ReviewerAgent(system_prompt_path="nonexistent.md")
         assert (Verdict.PASS, Verdict.PASS) in agent.verdict_matrix
-        assert agent.verdict_matrix[(Verdict.PASS, Verdict.PASS)] == "PROCEED_TO_FORMATTER"
-        assert agent.verdict_matrix[(Verdict.FAIL, Verdict.FAIL)] == "FULL_REGENERATION"
+        assert agent.verdict_matrix[(Verdict.PASS, Verdict.PASS)] == Verdict.PASS
+        assert agent.verdict_matrix[(Verdict.FAIL, Verdict.FAIL)] == Verdict.REJECT
 
     def test_critical_failure_patterns(self):
         """Test critical failure patterns are configured."""
@@ -124,7 +124,10 @@ class TestReview:
         """Test basic review produces ReviewVerdict."""
         verdict = reviewer.review(GOOD_OUTPUT, basic_context)
         assert isinstance(verdict, ReviewVerdict)
-        assert verdict.verdict in [Verdict.PASS, Verdict.FAIL]
+        assert verdict.verdict in [
+            Verdict.PASS, Verdict.FAIL, Verdict.PASS_WITH_CAVEATS,
+            Verdict.REVISE, Verdict.REJECT, Verdict.ESCALATE,
+        ]
 
     def test_good_output_passes(self, reviewer, basic_context):
         """Test good output passes review."""
@@ -133,9 +136,9 @@ class TestReview:
         assert verdict.verdict == Verdict.PASS
 
     def test_security_output_fails(self, reviewer, basic_context):
-        """Test security-problematic output fails."""
+        """Test security-problematic output fails or is rejected."""
         verdict = reviewer.review(SECURITY_OUTPUT, basic_context)
-        assert verdict.verdict == Verdict.FAIL
+        assert verdict.verdict in [Verdict.FAIL, Verdict.REJECT]
 
     def test_verdict_has_confidence(self, reviewer, basic_context):
         """Test verdict includes confidence score."""
@@ -198,27 +201,27 @@ class TestQualityGates:
 
 
 class TestVerdictMatrix:
-    """Tests for verdict matrix logic."""
+    """Tests for verdict matrix logic with Verdict enum values."""
 
     def test_both_pass_proceeds(self, reviewer):
-        """Test both PASS -> PROCEED_TO_FORMATTER."""
+        """Test both PASS -> Verdict.PASS."""
         action = reviewer._apply_verdict_matrix(Verdict.PASS, Verdict.PASS)
-        assert action == "PROCEED_TO_FORMATTER"
+        assert action == Verdict.PASS
 
     def test_verifier_pass_critic_fail(self, reviewer):
-        """Test Verifier PASS, Critic FAIL -> EXECUTOR_REVISE."""
+        """Test Verifier PASS, Critic FAIL -> Verdict.PASS_WITH_CAVEATS."""
         action = reviewer._apply_verdict_matrix(Verdict.PASS, Verdict.FAIL)
-        assert action == "EXECUTOR_REVISE"
+        assert action == Verdict.PASS_WITH_CAVEATS
 
     def test_verifier_fail_critic_pass(self, reviewer):
-        """Test Verifier FAIL, Critic PASS -> RESEARCHER_REVERIFY."""
+        """Test Verifier FAIL, Critic PASS -> Verdict.REVISE."""
         action = reviewer._apply_verdict_matrix(Verdict.FAIL, Verdict.PASS)
-        assert action == "RESEARCHER_REVERIFY"
+        assert action == Verdict.REVISE
 
     def test_both_fail_regenerates(self, reviewer):
-        """Test both FAIL -> FULL_REGENERATION."""
+        """Test both FAIL -> Verdict.REJECT."""
         action = reviewer._apply_verdict_matrix(Verdict.FAIL, Verdict.FAIL)
-        assert action == "FULL_REGENERATION"
+        assert action == Verdict.REJECT
 
 
 class TestCriticalFailures:
@@ -298,3 +301,111 @@ class TestConvenienceFunction:
         """Test convenience function creates a ReviewerAgent."""
         agent = create_reviewer(system_prompt_path="nonexistent.md")
         assert isinstance(agent, ReviewerAgent)
+
+
+# =============================================================================
+# Five Verdict System Tests
+# =============================================================================
+
+class TestFiveVerdictSystem:
+    """Tests for the 5-verdict system (PASS, PASS_WITH_CAVEATS, REVISE, REJECT, ESCALATE)."""
+
+    def test_verdict_enum_has_five_values(self):
+        """Test that Verdict enum contains the expected 5 verdict types plus FAIL."""
+        expected = {"PASS", "FAIL", "PASS_WITH_CAVEATS", "REVISE", "REJECT", "ESCALATE"}
+        actual = {v.value for v in Verdict}
+        assert expected == actual
+
+    def test_verdict_matrix_maps_to_verdict_enum(self, reviewer):
+        """Test that all verdict matrix values are Verdict enum instances."""
+        for key, value in reviewer.verdict_matrix.items():
+            assert isinstance(value, Verdict), f"Matrix entry {key} maps to {type(value)}, expected Verdict"
+
+    def test_verdict_matrix_keys_use_verdict_enum(self, reviewer):
+        """Test that all verdict matrix keys are tuples of Verdict enum."""
+        for key in reviewer.verdict_matrix:
+            assert isinstance(key, tuple)
+            assert len(key) == 2
+            assert isinstance(key[0], Verdict)
+            assert isinstance(key[1], Verdict)
+
+    def test_determine_verdict_reject_on_security_failure(self, reviewer, basic_context):
+        """Test _determine_verdict returns REJECT on security critical failure."""
+        from src.schemas.reviewer import QualityGateResults
+
+        quality_gates = QualityGateResults(
+            completeness=CheckItem(check_name="Completeness", passed=True, notes="OK", severity_if_failed="high"),
+            consistency=CheckItem(check_name="Consistency", passed=True, notes="OK", severity_if_failed="medium"),
+            verifier_signoff=CheckItem(check_name="Verifier", passed=True, notes="OK", severity_if_failed="critical"),
+            critic_findings_addressed=CheckItem(check_name="Critic", passed=True, notes="OK", severity_if_failed="high"),
+            readability=CheckItem(check_name="Readability", passed=True, notes="OK", severity_if_failed="low"),
+        )
+        critical_failures = {"security": ["sql injection found"], "hallucination": [], "logic": []}
+        verdict = reviewer._determine_verdict(quality_gates, critical_failures, basic_context)
+        assert verdict == Verdict.REJECT
+
+    def test_determine_verdict_escalate_on_tier4_disagreement(self, reviewer, tier4_context):
+        """Test _determine_verdict returns ESCALATE on Tier 4 verifier/critic disagreement."""
+        from src.schemas.reviewer import QualityGateResults
+
+        quality_gates = QualityGateResults(
+            completeness=CheckItem(check_name="Completeness", passed=True, notes="OK", severity_if_failed="high"),
+            consistency=CheckItem(check_name="Consistency", passed=True, notes="OK", severity_if_failed="medium"),
+            verifier_signoff=CheckItem(check_name="Verifier", passed=True, notes="OK", severity_if_failed="critical"),
+            critic_findings_addressed=CheckItem(check_name="Critic", passed=False, notes="Issues", severity_if_failed="high"),
+            readability=CheckItem(check_name="Readability", passed=True, notes="OK", severity_if_failed="low"),
+        )
+        critical_failures = {"security": [], "hallucination": [], "logic": []}
+        verdict = reviewer._determine_verdict(quality_gates, critical_failures, tier4_context)
+        assert verdict == Verdict.ESCALATE
+
+    def test_determine_verdict_pass_with_caveats(self, reviewer, basic_context):
+        """Test _determine_verdict returns PASS_WITH_CAVEATS when verifier passes but critic fails."""
+        from src.schemas.reviewer import QualityGateResults
+
+        quality_gates = QualityGateResults(
+            completeness=CheckItem(check_name="Completeness", passed=True, notes="OK", severity_if_failed="high"),
+            consistency=CheckItem(check_name="Consistency", passed=True, notes="OK", severity_if_failed="medium"),
+            verifier_signoff=CheckItem(check_name="Verifier", passed=True, notes="OK", severity_if_failed="critical"),
+            critic_findings_addressed=CheckItem(check_name="Critic", passed=False, notes="Minor issues", severity_if_failed="high"),
+            readability=CheckItem(check_name="Readability", passed=True, notes="OK", severity_if_failed="low"),
+        )
+        critical_failures = {"security": [], "hallucination": [], "logic": []}
+        verdict = reviewer._determine_verdict(quality_gates, critical_failures, basic_context)
+        assert verdict == Verdict.PASS_WITH_CAVEATS
+
+    def test_determine_verdict_revise(self, reviewer, basic_context):
+        """Test _determine_verdict returns REVISE when verifier fails but critic passes."""
+        from src.schemas.reviewer import QualityGateResults
+
+        quality_gates = QualityGateResults(
+            completeness=CheckItem(check_name="Completeness", passed=True, notes="OK", severity_if_failed="high"),
+            consistency=CheckItem(check_name="Consistency", passed=True, notes="OK", severity_if_failed="medium"),
+            verifier_signoff=CheckItem(check_name="Verifier", passed=False, notes="Failed", severity_if_failed="critical"),
+            critic_findings_addressed=CheckItem(check_name="Critic", passed=True, notes="OK", severity_if_failed="high"),
+            readability=CheckItem(check_name="Readability", passed=True, notes="OK", severity_if_failed="low"),
+        )
+        critical_failures = {"security": [], "hallucination": [], "logic": []}
+        verdict = reviewer._determine_verdict(quality_gates, critical_failures, basic_context)
+        assert verdict == Verdict.REVISE
+
+    def test_determine_verdict_pass_all_gates(self, reviewer, basic_context):
+        """Test _determine_verdict returns PASS when all gates pass."""
+        from src.schemas.reviewer import QualityGateResults
+
+        quality_gates = QualityGateResults(
+            completeness=CheckItem(check_name="Completeness", passed=True, notes="OK", severity_if_failed="high"),
+            consistency=CheckItem(check_name="Consistency", passed=True, notes="OK", severity_if_failed="medium"),
+            verifier_signoff=CheckItem(check_name="Verifier", passed=True, notes="OK", severity_if_failed="critical"),
+            critic_findings_addressed=CheckItem(check_name="Critic", passed=True, notes="OK", severity_if_failed="high"),
+            readability=CheckItem(check_name="Readability", passed=True, notes="OK", severity_if_failed="low"),
+        )
+        critical_failures = {"security": [], "hallucination": [], "logic": []}
+        verdict = reviewer._determine_verdict(quality_gates, critical_failures, basic_context)
+        assert verdict == Verdict.PASS
+
+    def test_apply_verdict_matrix_unknown_combo_defaults_to_revise(self, reviewer):
+        """Test that unknown verdict matrix combos default to REVISE."""
+        # Use a combo not in the matrix (e.g., ESCALATE, ESCALATE)
+        action = reviewer._apply_verdict_matrix(Verdict.ESCALATE, Verdict.ESCALATE)
+        assert action == Verdict.REVISE

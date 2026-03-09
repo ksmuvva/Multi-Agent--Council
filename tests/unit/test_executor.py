@@ -289,3 +289,92 @@ class TestConvenienceFunction:
         """Test convenience function creates an ExecutorAgent."""
         agent = create_executor(system_prompt_path="nonexistent.md")
         assert isinstance(agent, ExecutorAgent)
+
+
+# =============================================================================
+# SDK Execution Tests
+# =============================================================================
+
+class TestSDKExecution:
+    """Tests for _execute_via_sdk method."""
+
+    def test_execute_via_sdk_success(self, executor):
+        """Test _execute_via_sdk returns ExecutionResult when SDK succeeds."""
+        mock_result = {
+            "status": "success",
+            "output": "Generated solution code here",
+        }
+        approach = Approach(
+            name="Direct", description="Direct",
+            steps=["step1"], pros=["fast"], cons=["simple"],
+            estimated_time="low", complexity="low",
+        )
+
+        with patch("src.core.sdk_integration.spawn_subagent", return_value=mock_result), \
+             patch("src.core.sdk_integration.build_agent_options"):
+            result = executor._execute_via_sdk(approach, "Write a sort function")
+            assert result is not None
+            assert isinstance(result, ExecutionResult)
+            assert result.status == "success"
+            assert result.output == "Generated solution code here"
+            assert result.quality_score == 0.85
+
+    def test_execute_via_sdk_failure_returns_none(self, executor):
+        """Test _execute_via_sdk returns None when SDK fails."""
+        mock_result = {"status": "error", "output": None, "error": "API error"}
+        approach = Approach(
+            name="Direct", description="Direct",
+            steps=["step1"], pros=["fast"], cons=["simple"],
+            estimated_time="low", complexity="low",
+        )
+
+        with patch("src.core.sdk_integration.spawn_subagent", return_value=mock_result), \
+             patch("src.core.sdk_integration.build_agent_options"):
+            result = executor._execute_via_sdk(approach, "Write a function")
+            assert result is None
+
+    def test_execute_via_sdk_import_error_returns_simulated(self, executor):
+        """Test _execute_via_sdk falls back to simulated result when SDK is not available."""
+        approach = Approach(
+            name="Direct", description="Direct",
+            steps=["step1"], pros=["fast"], cons=["simple"],
+            estimated_time="low", complexity="low",
+        )
+        # Without patching, SDK import may fail but executor falls back to simulation
+        result = executor._execute_via_sdk(approach, "Write a function")
+        # Should return a simulated result (graceful degradation per FR-054)
+        assert result is not None
+        assert isinstance(result, ExecutionResult)
+
+    def test_execute_via_sdk_with_context(self, executor):
+        """Test _execute_via_sdk passes context to the prompt."""
+        mock_result = {
+            "status": "success",
+            "output": "Solution with context",
+        }
+        approach = Approach(
+            name="Comprehensive", description="Full solution",
+            steps=["step1", "step2"], pros=["thorough"], cons=["slow"],
+            estimated_time="high", complexity="high",
+        )
+        context = {
+            "analyst_report": "Task analysis details",
+            "plan": "Execution plan details",
+        }
+
+        with patch("src.core.sdk_integration.spawn_subagent", return_value=mock_result) as mock_spawn, \
+             patch("src.core.sdk_integration.build_agent_options"):
+            result = executor._execute_via_sdk(approach, "Build API", context)
+            assert result is not None
+            assert result.status == "success"
+            # Verify spawn_subagent was called with context in the prompt
+            call_args = mock_spawn.call_args
+            input_data = call_args.kwargs.get("input_data", call_args[1].get("input_data", ""))
+            assert "Analyst_Report" in input_data or "analyst_report" in input_data.lower() or "Analyst" in input_data
+
+    def test_execute_falls_back_to_local_when_sdk_fails(self, executor):
+        """Test that execute() falls back to local execution when SDK returns None."""
+        result = executor.execute("Write a Python function")
+        # Should still succeed via local execution fallback
+        assert isinstance(result, ExecutionResult)
+        assert result.status == "success"

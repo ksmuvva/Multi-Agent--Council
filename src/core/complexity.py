@@ -116,12 +116,13 @@ TIER_CONFIG = {
         "description": "Complex, domain-specific tasks",
         "active_agents": [
             "Orchestrator", "Analyst", "Planner", "Clarifier",
-            "Researcher", "Executor", "Code Reviewer", "Formatter",
-            "Verifier", "Critic", "Reviewer", "Memory Curator"
+            "Researcher", "Executor", "CodeReviewer", "Formatter",
+            "Verifier", "Critic", "Reviewer", "MemoryCurator",
+            "CouncilChair", "QualityArbiter", "EthicsAdvisor"
         ],
         "agent_count": 12,
         "requires_council": True,
-        "council_agents": ["Domain Council Chair"],
+        "council_agents": ["CouncilChair", "QualityArbiter", "EthicsAdvisor"],
         "requires_smes": True,
         "max_sme_count": 3,
         "phases": [
@@ -138,14 +139,17 @@ TIER_CONFIG = {
         "name": "Adversarial",
         "description": "High stakes, sensitive tasks",
         "active_agents": [
-            "All operational agents"
+            "Orchestrator", "Analyst", "Planner", "Clarifier",
+            "Researcher", "Executor", "CodeReviewer", "Formatter",
+            "Verifier", "Critic", "Reviewer", "MemoryCurator",
+            "CouncilChair", "QualityArbiter", "EthicsAdvisor"
         ],
         "agent_count": 18,
         "requires_council": True,
         "council_agents": [
-            "Domain Council Chair",
-            "Quality Arbiter",
-            "Ethics & Safety Advisor"
+            "CouncilChair",
+            "QualityArbiter",
+            "EthicsAdvisor"
         ],
         "requires_smes": True,
         "max_sme_count": 3,
@@ -167,26 +171,40 @@ TIER_3_KEYWORDS = [
     "architecture", "design pattern", "system design",
     "data pipeline", "etl", "data warehouse",
     "machine learning", "ai", "rag", "llm",
-    "security", "authentication", "authorization",
+    "security architecture", "security design", "authentication system", "authorization framework",
     "migration", "cloud native", "microservices",
     "test strategy", "test automation", "quality assurance",
     "requirements analysis", "gap analysis", "bpmn",
     "research", "investigate", "analyze multiple sources",
-    "domain expert", "specialist knowledge"
+    "domain expert", "specialist knowledge",
+    # Domain areas that need SME expertise
+    "hipaa", "gdpr", "healthcare", "medical", "health",
+    "financial", "banking", "payment",
+    "legal", "regulatory",
 ]
 
 TIER_4_KEYWORDS = [
     # High stakes and sensitive topics
     "security review", "security audit",
-    "personal data", "pii", "gdpr", "hipaa",
-    "financial", "banking", "payment",
-    "medical", "health", "healthcare",
-    "legal", "compliance", "regulatory",
+    "security implications", "security analysis",
+    "personal data", "pii",
     "government", "public sector",
     "safety", "risk assessment",
     "adversarial", "attack", "vulnerability",
     "critical", "production", "mission critical",
-    "debate", "controversial", "multiple perspectives"
+    "debate", "controversial", "multiple perspectives",
+    "identify potential vulnerabilities",
+]
+
+TIER_2_KEYWORDS = [
+    # Standard coding/writing tasks
+    "write a function", "write a program", "create a script",
+    "implement", "build", "develop", "code",
+    "function", "class", "module", "api",
+    "calculate", "sort", "parse", "convert",
+    "generate", "template", "document",
+    "explain", "compare", "summarize",
+    "refactor", "optimize", "improve",
 ]
 
 ESCALATION_KEYWORDS = [
@@ -238,6 +256,15 @@ def classify_complexity(
         keywords_found.extend(tier_3_matches)
         reasoning_parts.append(
             f"Contains domain-specific keywords: {', '.join(tier_3_matches[:3])}"
+        )
+
+    # Check for Tier 2 indicators (standard tasks)
+    tier_2_matches = [kw for kw in TIER_2_KEYWORDS if kw in prompt_lower]
+    if tier_2_matches and tier_score < 2:
+        tier_score = 2
+        keywords_found.extend(tier_2_matches)
+        reasoning_parts.append(
+            f"Standard code/content task detected: {', '.join(tier_2_matches[:3])}"
         )
 
     # Check for escalation keywords
@@ -355,27 +382,34 @@ def estimate_agent_count(tier: TierLevel, sme_count: int = 0) -> int:
     return base_count + sme_count
 
 
-def get_active_agents(tier: TierLevel) -> List[str]:
+def get_active_agents(tier) -> List[str]:
     """
     Get the list of active agents for a tier.
 
     Args:
-        tier: The tier level
+        tier: The tier level (TierLevel enum or int 1-4)
 
     Returns:
         List of agent names
     """
+    if isinstance(tier, int):
+        tier = TierLevel(tier)
     return TIER_CONFIG[tier]["active_agents"].copy()
 
 
-def get_council_agents(tier: TierLevel) -> List[str]:
+def get_council_agents(tier=None) -> List[str]:
     """
     Get the list of Council agents for a tier.
 
     Args:
-        tier: The tier level
+        tier: The tier level (TierLevel enum or int 1-4).
+              If None, returns all council agents (Tier 4 list).
 
     Returns:
         List of Council agent names (empty if Council not activated)
     """
+    if tier is None:
+        return TIER_CONFIG[TierLevel.ADVERSARIAL].get("council_agents", [])
+    if isinstance(tier, int):
+        tier = TierLevel(tier)
     return TIER_CONFIG[tier].get("council_agents", [])

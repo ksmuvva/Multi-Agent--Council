@@ -213,3 +213,97 @@ class TestConvenienceFunction:
         """Test convenience function creates a ResearcherAgent."""
         agent = create_researcher(system_prompt_path="nonexistent.md")
         assert isinstance(agent, ResearcherAgent)
+
+
+# =============================================================================
+# SDK-Aware Search Tests
+# =============================================================================
+
+class TestSDKAwareSearch:
+    """Tests for SDK-aware _perform_searches, _fetch_content, and _parse_search_output."""
+
+    def test_perform_searches_sdk_success(self, researcher):
+        """Test _perform_searches uses SDK path when spawn_subagent succeeds."""
+        mock_output = '[{"url": "https://example.com", "title": "Example", "snippet": "A snippet", "relevance_score": 0.95}]'
+        mock_result = {"status": "success", "output": mock_output}
+
+        with patch("src.core.sdk_integration.spawn_subagent", return_value=mock_result), \
+             patch("src.core.sdk_integration.build_agent_options"):
+            results = researcher._perform_searches(["test query"])
+            # Should contain the SDK result
+            sdk_urls = [r.url for r in results]
+            assert "https://example.com" in sdk_urls
+
+    def test_perform_searches_fallback_on_import_error(self, researcher):
+        """Test _perform_searches falls back to mock when SDK import fails."""
+        # Default behavior when SDK is not importable - should use mock results
+        results = researcher._perform_searches(["Python decorators"])
+        assert len(results) >= 2  # Mock generates 2 results per query
+        # All results should be from mock (example.com domain)
+        assert all("example.com" in r.url for r in results)
+
+    def test_perform_searches_fallback_on_insufficient_results(self, researcher):
+        """Test _perform_searches falls back when SDK returns fewer than 2 results."""
+        mock_result = {"status": "success", "output": '[{"url": "https://one.com", "title": "One", "snippet": "s", "relevance_score": 0.5}]'}
+
+        with patch("src.core.sdk_integration.spawn_subagent", return_value=mock_result), \
+             patch("src.core.sdk_integration.build_agent_options"):
+            results = researcher._perform_searches(["test"])
+            # Should have SDK result plus fallback mock results
+            assert len(results) >= 2
+
+    def test_perform_searches_deduplicates_urls(self, researcher):
+        """Test that duplicate URLs are removed from results."""
+        results = researcher._perform_searches(["Python", "Python"])
+        urls = [r.url for r in results]
+        assert len(urls) == len(set(urls))
+
+    def test_fetch_content_sdk_success(self, researcher):
+        """Test _fetch_content uses SDK path when spawn_subagent succeeds."""
+        mock_result = {"status": "success", "output": "Fetched content from the page about Python."}
+        search_results = [
+            SearchResult(url="https://docs.python.org/3", title="Python Docs", snippet="Official", relevance_score=0.9),
+        ]
+
+        with patch("src.core.sdk_integration.spawn_subagent", return_value=mock_result), \
+             patch("src.core.sdk_integration.build_agent_options"):
+            fetched = researcher._fetch_content(search_results)
+            assert len(fetched) == 1
+            assert "Fetched content" in fetched[0].content
+
+    def test_fetch_content_fallback_on_failure(self, researcher):
+        """Test _fetch_content falls back to mock when SDK fails."""
+        search_results = [
+            SearchResult(url="https://example.com/test", title="Test", snippet="test", relevance_score=0.8),
+        ]
+        # Without SDK available, should use mock content
+        fetched = researcher._fetch_content(search_results)
+        assert len(fetched) == 1
+        assert fetched[0].extraction_successful is True
+        assert fetched[0].word_count > 0
+
+    def test_parse_search_output_valid_json(self, researcher):
+        """Test _parse_search_output with valid JSON array."""
+        output = 'Some text before [{"url": "https://a.com", "title": "A", "snippet": "s", "relevance_score": 0.8}] and after'
+        results = researcher._parse_search_output(output)
+        assert len(results) == 1
+        assert results[0].url == "https://a.com"
+        assert results[0].relevance_score == 0.8
+
+    def test_parse_search_output_invalid_json(self, researcher):
+        """Test _parse_search_output with invalid JSON returns empty list."""
+        results = researcher._parse_search_output("not json at all")
+        assert results == []
+
+    def test_parse_search_output_empty_array(self, researcher):
+        """Test _parse_search_output with empty JSON array."""
+        results = researcher._parse_search_output("[]")
+        assert results == []
+
+    def test_parse_search_output_multiple_items(self, researcher):
+        """Test _parse_search_output with multiple items."""
+        output = '[{"url": "https://a.com", "title": "A", "snippet": "s1", "relevance_score": 0.9}, {"url": "https://b.com", "title": "B", "snippet": "s2", "relevance_score": 0.7}]'
+        results = researcher._parse_search_output(output)
+        assert len(results) == 2
+        assert results[0].url == "https://a.com"
+        assert results[1].url == "https://b.com"

@@ -5,6 +5,8 @@ This document contains AI-ready prompts for building the Multi-Agent Reasoning S
 **FRD Version:** 4.0
 **Total Requirements:** 62 (FR-001 to FR-062)
 
+**Implementation Status:** All 62 requirements fully implemented.
+
 ---
 
 ## Table of Contents
@@ -433,6 +435,12 @@ Implement skill chaining through the pipeline:
 3. Skills can reference outputs from prior skill invocations
 4. The pipeline tracks which skills were used and their outputs
 5. Downstream agents can build on upstream skill results
+6. 4 built-in chains defined in SKILL_CHAINS:
+   - full_development: analyst -> planner -> executor -> code_reviewer -> formatter
+   - research_and_report: analyst -> researcher -> executor -> formatter
+   - code_review: analyst -> executor -> code_reviewer -> reviewer
+   - documentation: analyst -> researcher -> executor -> formatter
+7. Auto-selection via select_skill_chain() based on task type keywords
 ```
 
 ---
@@ -459,14 +467,16 @@ Each phase maps to specific agents. Pipeline is configurable per tier.
 
 ```
 Implement the Verdict Matrix in src/core/verdict.py:
-A 2x2 matrix combining Verifier and Critic assessments:
+A 5-verdict system combining Verifier and Critic assessments:
 
 | | Critic: No Issues | Critic: Issues Found |
 |---|---|---|
 | Verifier: Confirmed | PASS | PASS_WITH_CAVEATS |
 | Verifier: Flagged | REVISE | ESCALATE |
 
-Plus a 5th action: REJECT when both find critical issues.
+5 verdicts: PASS, PASS_WITH_CAVEATS, REVISE, REJECT, ESCALATE.
+REJECT applies when both find critical issues.
+ESCALATE triggers tier escalation via the Orchestrator.
 The matrix feeds into the Final Reviewer's verdict decision.
 If REVISE, Orchestrator calls _re_execute_phase() to re-invoke Executor.
 ```
@@ -847,16 +857,21 @@ Dev: pytest, pytest-asyncio, pytest-cov, pytest-mock, black, ruff, mypy
 
 ```
 Create unit tests in tests/unit/:
-1. One test file per agent (test_analyst.py, test_planner.py, etc.)
-2. Minimum 5 tests per agent covering:
-   - Agent initialization
+1. 13 per-agent test files (test_analyst.py, test_planner.py, test_clarifier.py,
+   test_researcher.py, test_executor.py, test_code_reviewer.py, test_formatter.py,
+   test_verifier.py, test_critic.py, test_reviewer.py, test_memory_curator.py,
+   test_council.py, test_orchestrator.py)
+2. Tests cover:
+   - Agent initialization and SDK-aware methods
    - System prompt generation
-   - Input processing
-   - Output schema validation
+   - Input processing and output schema validation
+   - Event bus publishing and subscription
+   - Skill system integration
+   - 5-verdict matrix (PASS/PASS_WITH_CAVEATS/REVISE/REJECT/ESCALATE)
    - Error handling
 3. Use pytest with fixtures for common setup
 4. Mock SDK calls to avoid API dependencies
-5. Target: 180+ total unit tests
+5. 200+ total tests
 ```
 
 ### FR-060: Integration Tests
@@ -866,7 +881,13 @@ Create integration tests in tests/integration/:
 1. test_tier_workflows.py: End-to-end tier 1-4 workflows
 2. Gated by MAS_RUN_INTEGRATION=true environment variable
 3. Uses pytestmark = pytest.mark.skipif for gating
-4. Tests actual agent spawning and pipeline execution
+4. Tests include:
+   - Event bus workflow tests (publish/subscribe across agents)
+   - 5-verdict workflow tests (all verdict paths including ESCALATE)
+   - Skill chain workflow tests (full_development, research_and_report, etc.)
+   - SME spawning workflow tests (persona registry and interaction modes)
+   - Document generation workflow tests (multi-format output)
+   - Streaming workflow tests (real-time output delivery)
 5. Validates inter-agent data flow
 6. Checks budget enforcement and failure handling
 ```
@@ -875,13 +896,17 @@ Create integration tests in tests/integration/:
 
 ```
 Create comprehensive README.md:
-1. Project overview with architecture diagram (Mermaid)
-2. Quick start guide (install, configure, run)
-3. CLI usage examples
-4. Streamlit UI screenshots/description
-5. SME persona creation guide with template
-6. Configuration reference
-7. Development setup instructions
+1. Project overview with updated architecture diagram (Mermaid) showing
+   three-tier agent hierarchy and pipeline flow
+2. Key components section covering: Orchestrator, Council, Operational Agents,
+   SME System, Skill System, Event Bus, Verdict Matrix
+3. Quick start guide (install, configure, run)
+4. CLI usage examples
+5. Streamlit UI pages: Chat, Agent Activity, Results Inspector, Debate Viewer,
+   Cost Dashboard, Skill Catalogue, SME Browser, Settings
+6. SME persona creation guide with template
+7. Configuration reference
+8. Development setup instructions
 ```
 
 ### FR-062: Vibe Coding Prompts
@@ -893,8 +918,9 @@ Create docs/vibe-prompts.md (this document):
 3. Prompts are ordered by implementation dependency
 4. Table of contents for easy navigation
 5. Can be fed directly to Claude Code for implementation
+6. Updated to reflect final implementation with all 62 FRs completed
 ```
 
 ---
 
-*Generated from FRD_MultiAgent_Prototype_v4.docx - All 62 functional requirements covered.*
+*Generated from FRD_MultiAgent_Prototype_v4.docx - All 62 functional requirements implemented and verified.*

@@ -9,7 +9,8 @@ graph TD
     User[User] --> CLI[CLI/Typer]
     User --> UI[Streamlit UI]
     CLI --> Orchestrator[Orchestrator]
-    UI --> Orchestrator
+    UI --> EventBus[Event Bus]
+    EventBus --> Orchestrator
     Orchestrator --> Classifier[Tier Classifier]
 
     Classifier -->|Tier 1| T1[Direct: 3 agents]
@@ -28,6 +29,9 @@ graph TD
     T3 --> Ops
     T4 --> Ops
 
+    Skills[Skill System] -.->|loaded by| Ops
+    Skills -.->|loaded by| SMEs
+
     Ops --> Analyst[Analyst]
     Ops --> Planner[Planner]
     Ops --> Researcher[Researcher]
@@ -38,7 +42,9 @@ graph TD
 
     SMEs --> Ops
     Ops --> Formatter[Formatter]
+    Formatter -->|Streaming| UI
     Formatter --> Output[Output]
+    Orchestrator --> EventBus
 ```
 
 ## Features
@@ -48,11 +54,25 @@ graph TD
 - **Four-Tier Complexity Routing**: From simple (3 agents) to adversarial (18 agents)
 - **Eight-Phase Execution Pipeline**: Structured workflow with Council consultation
 - **Self-Play Debate**: Multi-perspective reasoning with tiebreaker
-- **Verdict Matrix**: Quality gate with automatic revision triggering
+- **5-Verdict Matrix**: Quality gate with PASS / PASS_WITH_CAVEATS / REVISE / REJECT / ESCALATE
 - **5 Ensemble Patterns**: Pre-configured agent collaborations
 - **Multi-Modal I/O**: Text, images, documents, code files
 - **Cost Tracking**: Budget enforcement with real-time monitoring
 - **Dual UI**: CLI (Typer) + Streamlit web interface
+- **Event Bus**: Real-time agent lifecycle tracking with pub/sub event system
+- **SDK-Aware Agent Methods**: Graceful fallback when the Claude Agent SDK is unavailable
+- **Real Document Generation**: DOCX, XLSX, and PPTX output via python-docx, openpyxl, and python-pptx
+- **Streaming Chat Responses**: Token-by-token streaming in the Streamlit chat interface
+- **Configurable Skill Chains**: 4 built-in chains (full_development, research_and_report, code_review, documentation)
+- **Per-Task Skill Override**: Override default skill selection on a per-task basis
+
+## Key Components
+
+- **Event Bus** (`src/core/events.py`) -- Pub/sub event system that broadcasts agent lifecycle events (start, progress, completion, error) so the UI and other listeners can react in real time.
+- **SDK Integration** (`src/core/sdk_integration.py`) -- Wrapper layer that detects the Claude Agent SDK at runtime and falls back to direct API calls when the SDK is not installed, keeping the system portable.
+- **Skill System** (`.claude/skills/`) -- Seven domain skills (requirements-engineering, architecture-design, code-generation, test-case-generation, document-creation, web-research, multi-agent-reasoning) loaded on demand by agents and SMEs.
+- **Verdict Matrix** -- Five-verdict quality gate used by the Reviewer and Quality Arbiter: PASS, PASS_WITH_CAVEATS, REVISE, REJECT, ESCALATE. A REVISE verdict triggers automatic re-execution of the pipeline.
+- **Streaming Chat** (`src/ui/pages/chat.py`) -- Streamlit chat page that streams responses token-by-token, displays agent activity via the Event Bus, and supports file upload/download.
 
 ## Agent Roster
 
@@ -165,6 +185,17 @@ mas query "Analyze this code" --file main.py --verbose --tier 3 --format markdow
 streamlit run src/ui/app.py
 ```
 
+The Streamlit interface includes the following pages:
+
+- **Chat** -- Streaming chat with token-by-token responses, file upload/download, and inline agent status
+- **Agent Activity Panel** -- Real-time agent lifecycle view powered by the Event Bus
+- **Cost Dashboard** -- Live cost tracking with per-agent and per-session breakdowns
+- **Debate Viewer** -- Colour-coded self-play debate positions with tiebreaker results
+- **Skill Catalogue** -- Browse and inspect the available skills and skill chains
+- **SME Persona Browser** -- View all registered SME personas, their domains, and trigger keywords
+- **Settings Panel** -- Configure LLM provider, budget, tier overrides, and logging
+- **File Upload/Download** -- Attach files to queries and download generated documents (DOCX, XLSX, PPTX)
+
 ## Configuration
 
 ### Quick Setup
@@ -217,19 +248,32 @@ MAS_CLARIFIER_MODEL=claude-3-5-haiku-20241022
 ```
 multi-agent-system/
 ├── src/
-│   ├── agents/          # All agent implementations
-│   ├── core/            # Pipeline, complexity, verdict, debate, SME registry
-│   ├── schemas/         # 13 Pydantic models
-│   ├── tools/           # Custom MCP tools
-│   ├── cli/             # Typer CLI
-│   ├── ui/              # Streamlit app
-│   └── utils/           # Logging, cost, events
-├── .claude/skills/      # Agent skills (SKILL.md)
+│   ├── agents/              # All agent implementations
+│   ├── core/                # Pipeline, complexity, verdict, debate, SME registry
+│   │   ├── events.py        # Event Bus (pub/sub lifecycle events)
+│   │   ├── sdk_integration.py # SDK wrapper with graceful fallback
+│   │   ├── skill_chains     # 4 built-in skill chains
+│   │   └── ...
+│   ├── schemas/             # 13 Pydantic models
+│   ├── tools/               # Custom MCP tools
+│   ├── cli/                 # Typer CLI
+│   ├── ui/                  # Streamlit app (chat, activity, cost, debate)
+│   └── utils/               # Logging, cost tracking
+├── .claude/skills/          # Agent skills (SKILL.md per domain)
+│   ├── architecture-design/
+│   ├── code-generation/
+│   ├── document-creation/
+│   ├── multi-agent-reasoning/
+│   ├── requirements-engineering/
+│   ├── test-case-generation/
+│   └── web-research/
 ├── config/
-│   ├── agents/          # Per-agent CLAUDE.md
-│   └── sme/             # SME persona templates
-├── tests/               # Unit + integration tests
-└── docs/                # Documentation + knowledge base
+│   ├── agents/              # Per-agent CLAUDE.md
+│   └── sme/                 # SME persona templates
+├── tests/
+│   ├── unit/                # 500+ unit tests
+│   └── integration/         # Integration tests (MAS_RUN_INTEGRATION gated)
+└── docs/                    # Documentation + knowledge base
 ```
 
 ## Development
@@ -249,6 +293,52 @@ ruff check src/ tests/
 
 # Type check
 mypy src/
+```
+
+## Testing
+
+The project includes 500+ unit tests and a suite of integration tests.
+
+### Unit Tests
+
+There is at least one dedicated test file per agent, plus tests for core modules, schemas, and configuration:
+
+```bash
+# Run all unit tests
+pytest tests/unit/
+
+# Run tests for a specific agent
+pytest tests/unit/test_analyst.py
+
+# Run with coverage
+pytest tests/unit/ --cov=src
+```
+
+### Integration Tests
+
+Integration tests make live API calls and are gated behind an environment variable to avoid accidental cost:
+
+```bash
+# Enable and run integration tests
+MAS_RUN_INTEGRATION=true pytest tests/integration/
+
+# Run only integration tests for tier workflows
+MAS_RUN_INTEGRATION=true pytest tests/integration/test_tier_workflows.py
+```
+
+By default `MAS_RUN_INTEGRATION` is `false` (set in `.env.example`), so `pytest` will skip integration tests unless you opt in.
+
+### Full Suite
+
+```bash
+# Unit tests only (default, no API calls)
+pytest
+
+# Everything including integration
+MAS_RUN_INTEGRATION=true pytest
+
+# With verbose output and coverage
+MAS_RUN_INTEGRATION=true pytest -v --cov=src --cov-report=term-missing
 ```
 
 ## Creating Custom SME Personas

@@ -20,7 +20,17 @@ from src.config.settings import (
     get_model_for_agent,
     get_provider,
     DEFAULT_MODEL_MAPPINGS,
+    _global_settings,
 )
+import src.config.settings as _settings_module
+
+
+@pytest.fixture(autouse=True)
+def reset_settings_singleton():
+    """Reset the global settings singleton before each test."""
+    _settings_module._global_settings = None
+    yield
+    _settings_module._global_settings = None
 
 
 # =============================================================================

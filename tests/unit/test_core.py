@@ -167,8 +167,8 @@ class TestEnsemblePatterns:
             config = pattern.get_config()
             assert isinstance(config, EnsembleConfig)
             assert config.name is not None
-            assert config.agents is not None
-            assert len(config.agents) > 0
+            assert config.agent_assignments is not None
+            assert len(config.agent_assignments) > 0
 
     def test_code_sprint_pattern(self):
         """Test Code Sprint pattern specifically."""
@@ -178,7 +178,7 @@ class TestEnsemblePatterns:
         config = pattern.get_config()
 
         # Code sprint should include executor and code reviewer
-        agent_names = [a.name for a in config.agents]
+        agent_names = [a.agent_name for a in config.agent_assignments]
         assert "Executor" in agent_names
         assert "CodeReviewer" in agent_names
 
@@ -401,7 +401,7 @@ class TestCostCalculations:
 
     def test_tier_model_mapping(self):
         """Test that tiers map to appropriate models."""
-        from src.utils.cost import ModelPricing
+        from src.utils.cost import ModelPricing, MODEL_COSTS
 
         # Higher tiers should use more capable models
         # This is tested indirectly through cost calculations
@@ -414,3 +414,259 @@ class TestCostCalculations:
 
         for tier, model in tier_models.items():
             assert model in MODEL_COSTS
+
+
+# =============================================================================
+# Event Bus Tests
+# =============================================================================
+
+class TestEventBus:
+    """Tests for the EventBus class."""
+
+    def test_subscribe_and_emit(self):
+        """Test subscribing to an event and receiving it when emitted."""
+        from src.core.events import EventBus
+
+        bus = EventBus()
+        received = []
+        bus.subscribe("test_event", lambda data: received.append(data))
+        bus.emit("test_event", {"key": "value"})
+
+        assert len(received) == 1
+        assert received[0]["key"] == "value"
+        assert "event_type" in received[0]
+        assert "timestamp" in received[0]
+
+    def test_unsubscribe(self):
+        """Test unsubscribing removes the callback."""
+        from src.core.events import EventBus
+
+        bus = EventBus()
+        received = []
+        callback = lambda data: received.append(data)
+        bus.subscribe("test_event", callback)
+        bus.unsubscribe("test_event", callback)
+        bus.emit("test_event", {"key": "value"})
+
+        assert len(received) == 0
+
+    def test_clear_removes_all_subscribers(self):
+        """Test clear removes all subscribers."""
+        from src.core.events import EventBus
+
+        bus = EventBus()
+        received = []
+        bus.subscribe("event_a", lambda data: received.append(data))
+        bus.subscribe("event_b", lambda data: received.append(data))
+        bus.clear()
+        bus.emit("event_a", {"key": "a"})
+        bus.emit("event_b", {"key": "b"})
+
+        assert len(received) == 0
+
+    def test_multiple_subscribers(self):
+        """Test multiple subscribers to the same event."""
+        from src.core.events import EventBus
+
+        bus = EventBus()
+        received_a = []
+        received_b = []
+        bus.subscribe("test_event", lambda data: received_a.append(data))
+        bus.subscribe("test_event", lambda data: received_b.append(data))
+        bus.emit("test_event", {"key": "value"})
+
+        assert len(received_a) == 1
+        assert len(received_b) == 1
+
+    def test_emit_swallows_callback_errors(self):
+        """Test that errors in callbacks don't break the bus."""
+        from src.core.events import EventBus
+
+        bus = EventBus()
+        received = []
+
+        def bad_callback(data):
+            raise RuntimeError("Callback error")
+
+        bus.subscribe("test_event", bad_callback)
+        bus.subscribe("test_event", lambda data: received.append(data))
+
+        # Should not raise despite bad_callback
+        bus.emit("test_event", {"key": "value"})
+        assert len(received) == 1
+
+    def test_no_duplicate_subscriptions(self):
+        """Test that the same callback is not added twice."""
+        from src.core.events import EventBus
+
+        bus = EventBus()
+        received = []
+        callback = lambda data: received.append(data)
+        bus.subscribe("test_event", callback)
+        bus.subscribe("test_event", callback)
+        bus.emit("test_event", {"key": "value"})
+
+        assert len(received) == 1
+
+
+# =============================================================================
+# Event Helper Functions Tests
+# =============================================================================
+
+class TestEventHelpers:
+    """Tests for emit_agent_started, emit_agent_completed, etc."""
+
+    def test_emit_agent_started_payload(self):
+        """Test emit_agent_started sends correct payload."""
+        from src.core.events import EventBus, EventType, agent_event_bus, emit_agent_started
+
+        received = []
+        agent_event_bus.clear()
+        agent_event_bus.subscribe(EventType.AGENT_STARTED, lambda d: received.append(d))
+
+        emit_agent_started(agent_id="a1", agent_name="Analyst", tier="2", phase="Init")
+
+        assert len(received) == 1
+        assert received[0]["agent_id"] == "a1"
+        assert received[0]["agent_name"] == "Analyst"
+        assert received[0]["tier"] == "2"
+        assert received[0]["phase"] == "Init"
+        assert received[0]["event_type"] == EventType.AGENT_STARTED
+        agent_event_bus.clear()
+
+    def test_emit_agent_completed_payload(self):
+        """Test emit_agent_completed sends correct payload."""
+        from src.core.events import agent_event_bus, EventType, emit_agent_completed
+
+        received = []
+        agent_event_bus.clear()
+        agent_event_bus.subscribe(EventType.AGENT_COMPLETED, lambda d: received.append(d))
+
+        emit_agent_completed(agent_id="a2", agent_name="Executor", output="done")
+
+        assert len(received) == 1
+        assert received[0]["agent_id"] == "a2"
+        assert received[0]["output"] == "done"
+        agent_event_bus.clear()
+
+    def test_emit_agent_failed_payload(self):
+        """Test emit_agent_failed sends correct payload."""
+        from src.core.events import agent_event_bus, EventType, emit_agent_failed
+
+        received = []
+        agent_event_bus.clear()
+        agent_event_bus.subscribe(EventType.AGENT_FAILED, lambda d: received.append(d))
+
+        emit_agent_failed(agent_id="a3", agent_name="Researcher", error="network error")
+
+        assert len(received) == 1
+        assert received[0]["error"] == "network error"
+        agent_event_bus.clear()
+
+    def test_emit_cost_recorded_payload(self):
+        """Test emit_cost_recorded sends correct payload."""
+        from src.core.events import agent_event_bus, EventType, emit_cost_recorded
+
+        received = []
+        agent_event_bus.clear()
+        agent_event_bus.subscribe(EventType.COST_RECORDED, lambda d: received.append(d))
+
+        emit_cost_recorded(
+            agent_name="Executor", model="claude-3-5-sonnet",
+            input_tokens=500, output_tokens=1000, total_tokens=1500,
+            cost_usd=0.05, tier=2, phase="Execution",
+        )
+
+        assert len(received) == 1
+        assert received[0]["input_tokens"] == 500
+        assert received[0]["output_tokens"] == 1000
+        assert received[0]["cost_usd"] == 0.05
+        assert received[0]["phase"] == "Execution"
+        agent_event_bus.clear()
+
+
+# =============================================================================
+# Skill System Tests
+# =============================================================================
+
+class TestSkillSystem:
+    """Tests for SDK skill system functions."""
+
+    def test_get_skills_for_agent_known(self):
+        """Test get_skills_for_agent returns skills for known agents."""
+        from src.core.sdk_integration import get_skills_for_agent, AGENT_SKILLS
+
+        for agent_name, expected_skills in AGENT_SKILLS.items():
+            skills = get_skills_for_agent(agent_name)
+            assert skills == list(expected_skills)
+
+    def test_get_skills_for_agent_unknown(self):
+        """Test get_skills_for_agent returns empty list for unknown agents."""
+        from src.core.sdk_integration import get_skills_for_agent
+
+        skills = get_skills_for_agent("nonexistent_agent")
+        assert skills == []
+
+    def test_get_skills_for_task_adds_keyword_skills(self):
+        """Test get_skills_for_task adds skills based on task keywords."""
+        from src.core.sdk_integration import get_skills_for_task
+
+        skills = get_skills_for_task("design the architecture for the system", "executor")
+        assert "architecture-design" in skills
+        # Should also include executor's default skills
+        assert "code-generation" in skills
+
+    def test_get_skills_for_task_no_extra_for_unmatched(self):
+        """Test get_skills_for_task returns only defaults for unmatched keywords."""
+        from src.core.sdk_integration import get_skills_for_task
+
+        skills = get_skills_for_task("do something generic", "executor")
+        assert skills == ["code-generation"]
+
+    def test_get_skill_chain_known(self):
+        """Test get_skill_chain returns ordered skills for known chains."""
+        from src.core.sdk_integration import get_skill_chain, SKILL_CHAINS
+
+        for chain_name, expected in SKILL_CHAINS.items():
+            chain = get_skill_chain(chain_name)
+            assert chain == list(expected)
+
+    def test_get_skill_chain_unknown(self):
+        """Test get_skill_chain returns empty list for unknown chains."""
+        from src.core.sdk_integration import get_skill_chain
+
+        chain = get_skill_chain("nonexistent_chain")
+        assert chain == []
+
+    def test_select_skill_chain_development(self):
+        """Test select_skill_chain selects full_development for dev keywords."""
+        from src.core.sdk_integration import select_skill_chain
+
+        result = select_skill_chain("develop a full stack application")
+        assert result == "full_development"
+
+    def test_select_skill_chain_research(self):
+        """Test select_skill_chain selects research_and_report for research keywords."""
+        from src.core.sdk_integration import select_skill_chain
+
+        result = select_skill_chain("research the latest AI trends and report")
+        assert result == "research_and_report"
+
+    def test_select_skill_chain_no_match(self):
+        """Test select_skill_chain returns None when no keywords match."""
+        from src.core.sdk_integration import select_skill_chain
+
+        result = select_skill_chain("hello world")
+        assert result is None
+
+    def test_skill_chains_have_correct_structure(self):
+        """Test SKILL_CHAINS dictionary has valid entries."""
+        from src.core.sdk_integration import SKILL_CHAINS
+
+        assert len(SKILL_CHAINS) > 0
+        for chain_name, skills in SKILL_CHAINS.items():
+            assert isinstance(chain_name, str)
+            assert isinstance(skills, list)
+            assert len(skills) > 0
+            for skill in skills:
+                assert isinstance(skill, str)

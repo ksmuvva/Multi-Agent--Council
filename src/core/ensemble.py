@@ -241,7 +241,7 @@ class ArchitectureReviewBoard(EnsemblePattern):
                 ),
                 # Phase 4: Quality Gates
                 AgentAssignment(
-                    agent_name="Code Reviewer",
+                    agent_name="CodeReviewer",
                     role=AgentRole.QUALITY_GATE,
                     phase="quality",
                     dependencies=["Executor"],
@@ -253,7 +253,7 @@ class ArchitectureReviewBoard(EnsemblePattern):
                     role=AgentRole.QUALITY_GATE,
                     phase="quality",
                     dependencies=["Executor"],
-                    parallel_with=["Code Reviewer", "Critic"],
+                    parallel_with=["CodeReviewer", "Critic"],
                     max_turns=25,
                 ),
                 AgentAssignment(
@@ -261,7 +261,7 @@ class ArchitectureReviewBoard(EnsemblePattern):
                     role=AgentRole.QUALITY_GATE,
                     phase="quality",
                     dependencies=["Executor"],
-                    parallel_with=["Code Reviewer", "Verifier"],
+                    parallel_with=["CodeReviewer", "Verifier"],
                     max_turns=25,
                 ),
                 # Phase 5: Final Review
@@ -269,13 +269,13 @@ class ArchitectureReviewBoard(EnsemblePattern):
                     agent_name="Reviewer",
                     role=AgentRole.QUALITY_GATE,
                     phase="final",
-                    dependencies=["Code Reviewer", "Verifier", "Critic"],
+                    dependencies=["CodeReviewer", "Verifier", "Critic"],
                     parallel_with=[],
                     max_turns=20,
                 ),
             ],
             required_smes=["cloud_architect", "security_analyst", "data_engineer"],
-            quality_gates=["Code Reviewer", "Verifier", "Critic", "Reviewer"],
+            quality_gates=["CodeReviewer", "Verifier", "Critic", "Reviewer"],
             expected_output="Comprehensive architecture review report with findings and recommendations",
             success_criteria=[
                 "All three domain SMEs provide input",
@@ -383,7 +383,7 @@ class CodeSprint(EnsemblePattern):
                 ),
                 # Phase 3: Parallel Quality Checks
                 AgentAssignment(
-                    agent_name="Code Reviewer",
+                    agent_name="CodeReviewer",
                     role=AgentRole.REVIEWER,
                     phase="quality",
                     dependencies=["Executor"],
@@ -395,7 +395,7 @@ class CodeSprint(EnsemblePattern):
                     role=AgentRole.ADVISOR,
                     phase="quality",
                     dependencies=["Executor"],
-                    parallel_with=["Code Reviewer"],
+                    parallel_with=["CodeReviewer"],
                     max_turns=20,
                 ),
                 # Phase 4: Final Review & Format
@@ -403,7 +403,7 @@ class CodeSprint(EnsemblePattern):
                     agent_name="Verifier",
                     role=AgentRole.QUALITY_GATE,
                     phase="verification",
-                    dependencies=["Code Reviewer"],
+                    dependencies=["CodeReviewer"],
                     parallel_with=[],
                     max_turns=15,
                 ),
@@ -417,7 +417,7 @@ class CodeSprint(EnsemblePattern):
                 ),
             ],
             required_smes=["test_engineer"],
-            quality_gates=["Code Reviewer", "Verifier"],
+            quality_gates=["CodeReviewer", "Verifier"],
             expected_output="Working code with tests and documentation",
             success_criteria=[
                 "Code implements requirements",
@@ -883,12 +883,12 @@ class RequirementsWorkshop(EnsemblePattern):
 # Ensemble Registry
 # =============================================================================
 
-ENSEMBLE_REGISTRY: Dict[EnsembleType, type] = {
-    EnsembleType.ARCHITECTURE_REVIEW_BOARD: ArchitectureReviewBoard,
-    EnsembleType.CODE_SPRINT: CodeSprint,
-    EnsembleType.RESEARCH_COUNCIL: ResearchCouncil,
-    EnsembleType.DOCUMENT_ASSEMBLY: DocumentAssembly,
-    EnsembleType.REQUIREMENTS_WORKSHOP: RequirementsWorkshop,
+ENSEMBLE_REGISTRY: Dict[EnsembleType, "EnsemblePattern"] = {
+    EnsembleType.ARCHITECTURE_REVIEW_BOARD: ArchitectureReviewBoard(),
+    EnsembleType.CODE_SPRINT: CodeSprint(),
+    EnsembleType.RESEARCH_COUNCIL: ResearchCouncil(),
+    EnsembleType.DOCUMENT_ASSEMBLY: DocumentAssembly(),
+    EnsembleType.REQUIREMENTS_WORKSHOP: RequirementsWorkshop(),
 }
 
 
@@ -902,10 +902,7 @@ def get_ensemble(ensemble_type: EnsembleType) -> Optional[EnsemblePattern]:
     Returns:
         The ensemble pattern instance, or None if not found
     """
-    ensemble_class = ENSEMBLE_REGISTRY.get(ensemble_type)
-    if ensemble_class:
-        return ensemble_class()
-    return None
+    return ENSEMBLE_REGISTRY.get(ensemble_type)
 
 
 def get_all_ensembles() -> Dict[EnsembleType, EnsemblePattern]:

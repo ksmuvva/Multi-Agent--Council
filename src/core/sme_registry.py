@@ -43,6 +43,11 @@ class SMEPersona:
     default_model: str = "sonnet"
     description: str = ""
 
+    @property
+    def display_name(self) -> str:
+        """Display name for the persona (defaults to name)."""
+        return self.name
+
 
 # =============================================================================
 # SME Persona Registry

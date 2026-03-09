@@ -274,6 +274,10 @@ class OrchestratorAgent:
                 context=execution_context,
             )
 
+            # Step 5b: Check budget after pipeline execution
+            if session.is_budget_exceeded():
+                return self._budget_exceeded_response(session)
+
             # Step 6: Generate final response
             response = self._generate_final_response(
                 session=session,

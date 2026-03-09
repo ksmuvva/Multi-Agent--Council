@@ -15,8 +15,8 @@ from src.schemas.verifier import (
     ClaimBatch,
     VerificationStatus,
     FabricationRisk,
-    ConfidenceLevel,
 )
+from src.schemas.researcher import ConfidenceLevel
 
 
 @dataclass

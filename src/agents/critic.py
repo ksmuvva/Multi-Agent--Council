@@ -313,7 +313,7 @@ class CriticAgent:
         ]
 
         for pattern, description in contradiction_patterns:
-            if re.search(pattern, solution_lower):
+            if re.search(pattern, solution_lower, re.DOTALL):
                 internal_contradictions.append(description)
 
         # Check for external contradictions with common knowledge

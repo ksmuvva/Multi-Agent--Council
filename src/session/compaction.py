@@ -26,6 +26,7 @@ class CompactionTrigger(str, Enum):
     MESSAGE_COUNT = "message_count"  # Message count threshold
     SESSION_AGE = "session_age"  # Session age threshold
     MANUAL = "manual"  # User requested
+    AUTO = "auto"  # Automatic trigger
 
 
 @dataclass

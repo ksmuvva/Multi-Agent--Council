@@ -6,6 +6,7 @@ JSON/YAML formatting, and Mermaid diagram generation.
 """
 
 import json
+import os
 import pytest
 from unittest.mock import patch, mock_open, MagicMock
 
@@ -275,3 +276,106 @@ class TestConvenienceFunction:
         """Test convenience function creates a FormatterAgent."""
         agent = create_formatter(system_prompt_path="nonexistent.md")
         assert isinstance(agent, FormatterAgent)
+
+
+# =============================================================================
+# Document Generation Tests
+# =============================================================================
+
+class TestDocumentGeneration:
+    """Tests for real document file generation (_generate_docx, _generate_xlsx, _generate_pptx)."""
+
+    def test_generate_docx_from_dict(self, formatter, tmp_path):
+        """Test DOCX generation from a dictionary produces a real file."""
+        content = {
+            "Overview": "This is a test document.",
+            "Details": {"key1": "value1", "key2": "value2"},
+        }
+        result = formatter._generate_docx(content, {"title": "Test Doc"})
+
+        assert result["format"] == "docx"
+        assert result["size_bytes"] > 0
+        assert os.path.isfile(result["file_path"])
+        assert result["file_path"].endswith(".docx")
+
+    def test_generate_docx_from_string(self, formatter, tmp_path):
+        """Test DOCX generation from plain text content."""
+        content = "This is paragraph one.\n\nThis is paragraph two."
+        result = formatter._generate_docx(content, {"title": "Plain Text Doc"})
+
+        assert result["format"] == "docx"
+        assert os.path.isfile(result["file_path"])
+        assert result["size_bytes"] > 0
+
+    def test_generate_docx_from_list(self, formatter, tmp_path):
+        """Test DOCX generation from a list of items."""
+        content = ["Item 1", "Item 2", "Item 3"]
+        result = formatter._generate_docx(content)
+
+        assert result["format"] == "docx"
+        assert os.path.isfile(result["file_path"])
+
+    def test_generate_xlsx_from_dict(self, formatter, tmp_path):
+        """Test XLSX generation from a dictionary produces a real file."""
+        content = {"Name": "Alice", "Age": "30", "City": "NYC"}
+        result = formatter._generate_xlsx(content, {"title": "People"})
+
+        assert result["format"] == "xlsx"
+        assert result["size_bytes"] > 0
+        assert os.path.isfile(result["file_path"])
+        assert result["file_path"].endswith(".xlsx")
+
+    def test_generate_xlsx_from_list_of_dicts(self, formatter, tmp_path):
+        """Test XLSX generation from a list of dictionaries."""
+        content = [
+            {"Name": "Alice", "Score": "95"},
+            {"Name": "Bob", "Score": "87"},
+        ]
+        result = formatter._generate_xlsx(content)
+
+        assert result["format"] == "xlsx"
+        assert os.path.isfile(result["file_path"])
+        assert result["size_bytes"] > 0
+
+    def test_generate_xlsx_from_columnar_dict(self, formatter, tmp_path):
+        """Test XLSX generation from columnar data (dict of lists)."""
+        content = {
+            "Name": ["Alice", "Bob", "Charlie"],
+            "Score": ["95", "87", "92"],
+        }
+        result = formatter._generate_xlsx(content)
+
+        assert result["format"] == "xlsx"
+        assert os.path.isfile(result["file_path"])
+
+    def test_generate_pptx_from_dict(self, formatter, tmp_path):
+        """Test PPTX generation from a dictionary produces a real file."""
+        content = {
+            "Introduction": "Welcome to the presentation",
+            "Key Points": ["Point 1", "Point 2", "Point 3"],
+        }
+        result = formatter._generate_pptx(content, {"title": "Test Presentation"})
+
+        assert result["format"] == "pptx"
+        assert result["size_bytes"] > 0
+        assert os.path.isfile(result["file_path"])
+        assert result["file_path"].endswith(".pptx")
+
+    def test_generate_pptx_from_list(self, formatter, tmp_path):
+        """Test PPTX generation from a list of items."""
+        content = ["Slide bullet 1", "Slide bullet 2", "Slide bullet 3",
+                    "Slide bullet 4", "Slide bullet 5", "Slide bullet 6",
+                    "Slide bullet 7"]
+        result = formatter._generate_pptx(content, {"title": "List Presentation"})
+
+        assert result["format"] == "pptx"
+        assert os.path.isfile(result["file_path"])
+
+    def test_generate_pptx_from_string(self, formatter, tmp_path):
+        """Test PPTX generation from plain text content."""
+        content = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
+        result = formatter._generate_pptx(content)
+
+        assert result["format"] == "pptx"
+        assert os.path.isfile(result["file_path"])
+        assert result["size_bytes"] > 0

@@ -402,3 +402,192 @@ class TestCreateOrchestrator:
         assert isinstance(orchestrator, OrchestratorAgent)
         assert orchestrator.max_budget_usd == 15.0
         assert orchestrator.verbose is True
+
+
+# =============================================================================
+# Event Bus Integration Tests
+# =============================================================================
+
+class TestEventBusIntegration:
+    """Tests for event bus integration within the orchestrator."""
+
+    def test_emit_agent_started_fires(self):
+        """Test that emit_agent_started emits an event through the bus."""
+        from src.core.events import agent_event_bus, EventType, emit_agent_started
+
+        received = []
+        agent_event_bus.clear()
+        agent_event_bus.subscribe(EventType.AGENT_STARTED, lambda data: received.append(data))
+
+        emit_agent_started(agent_id="test_1", agent_name="Analyst", tier="2", phase="Analysis")
+
+        assert len(received) == 1
+        assert received[0]["agent_name"] == "Analyst"
+        assert received[0]["tier"] == "2"
+        agent_event_bus.clear()
+
+    def test_emit_agent_completed_fires(self):
+        """Test that emit_agent_completed emits an event through the bus."""
+        from src.core.events import agent_event_bus, EventType, emit_agent_completed
+
+        received = []
+        agent_event_bus.clear()
+        agent_event_bus.subscribe(EventType.AGENT_COMPLETED, lambda data: received.append(data))
+
+        emit_agent_completed(agent_id="test_2", agent_name="Executor", output="result")
+
+        assert len(received) == 1
+        assert received[0]["agent_name"] == "Executor"
+        assert received[0]["output"] == "result"
+        agent_event_bus.clear()
+
+    def test_emit_agent_failed_fires(self):
+        """Test that emit_agent_failed emits an event through the bus."""
+        from src.core.events import agent_event_bus, EventType, emit_agent_failed
+
+        received = []
+        agent_event_bus.clear()
+        agent_event_bus.subscribe(EventType.AGENT_FAILED, lambda data: received.append(data))
+
+        emit_agent_failed(agent_id="test_3", agent_name="Researcher", error="timeout")
+
+        assert len(received) == 1
+        assert received[0]["agent_name"] == "Researcher"
+        assert received[0]["error"] == "timeout"
+        agent_event_bus.clear()
+
+    def test_emit_cost_recorded_fires(self):
+        """Test that emit_cost_recorded emits an event through the bus."""
+        from src.core.events import agent_event_bus, EventType, emit_cost_recorded
+
+        received = []
+        agent_event_bus.clear()
+        agent_event_bus.subscribe(EventType.COST_RECORDED, lambda data: received.append(data))
+
+        emit_cost_recorded(
+            agent_name="Executor", model="claude-3-5-sonnet",
+            input_tokens=100, output_tokens=200, total_tokens=300,
+            cost_usd=0.01, tier=2, phase="Execution",
+        )
+
+        assert len(received) == 1
+        assert received[0]["cost_usd"] == 0.01
+        assert received[0]["total_tokens"] == 300
+        agent_event_bus.clear()
+
+
+# =============================================================================
+# SME Spawning Tests
+# =============================================================================
+
+class TestSMESpawning:
+    """Tests for _spawn_sme method."""
+
+    def test_spawn_sme_invalid_persona_returns_error(self):
+        """Test _spawn_sme returns error for invalid persona ID."""
+        orchestrator = OrchestratorAgent()
+        session = SessionState(session_id="sme_test", user_prompt="Test")
+
+        result = orchestrator._spawn_sme(
+            session=session,
+            persona_id="nonexistent_persona_xyz",
+            input_data="Give me advice",
+        )
+
+        assert result["status"] == "error"
+        assert "not found" in result["error"]
+
+    def test_spawn_sme_valid_persona_calls_spawn_agent(self):
+        """Test _spawn_sme calls _spawn_agent for a valid persona."""
+        orchestrator = OrchestratorAgent()
+        session = SessionState(session_id="sme_test2", user_prompt="Test")
+
+        mock_result = {"status": "success", "output": "SME advice here"}
+        with patch.object(orchestrator, "_spawn_agent", return_value=mock_result) as mock_spawn:
+            result = orchestrator._spawn_sme(
+                session=session,
+                persona_id="cloud_architect",
+                input_data="Advise on cloud architecture",
+                interaction_mode="consult",
+            )
+
+            assert mock_spawn.called
+            call_kwargs = mock_spawn.call_args
+            assert "SME:" in call_kwargs.kwargs.get("agent_name", call_kwargs[1].get("agent_name", ""))
+
+    def test_spawn_sme_interaction_modes(self):
+        """Test _spawn_sme uses correct mode instructions."""
+        orchestrator = OrchestratorAgent()
+        session = SessionState(session_id="sme_test3", user_prompt="Test")
+
+        for mode in ["consult", "debate", "co_author"]:
+            mock_result = {"status": "success", "output": f"{mode} response"}
+            with patch.object(orchestrator, "_spawn_agent", return_value=mock_result) as mock_spawn:
+                orchestrator._spawn_sme(
+                    session=session,
+                    persona_id="security_analyst",
+                    input_data="Security review",
+                    interaction_mode=mode,
+                )
+
+                call_kwargs = mock_spawn.call_args
+                input_data = call_kwargs.kwargs.get("input_data", call_kwargs[1].get("input_data", ""))
+                # Each mode should include the appropriate instruction
+                assert "Security review" in input_data
+
+
+# =============================================================================
+# Debate Protocol Tests
+# =============================================================================
+
+class TestDebateProtocol:
+    """Tests for _conduct_debate method."""
+
+    def test_conduct_debate_spawns_agents(self):
+        """Test _conduct_debate spawns debate participants."""
+        orchestrator = OrchestratorAgent(max_debate_rounds=1)
+        session = SessionState(
+            session_id="debate_test", user_prompt="Test",
+            max_debate_rounds=1,
+        )
+        session.agent_executions.append(AgentExecution(
+            agent_name="Executor", start_time=0, status="complete",
+            output="Solution content here",
+        ))
+
+        mock_result = {"status": "success", "output": "Debate position"}
+        with patch.object(orchestrator, "_spawn_agent", return_value=mock_result) as mock_spawn:
+            orchestrator._conduct_debate(session, {"user_prompt": "Test"})
+
+            # Should have called _spawn_agent at least once (for Critic and Verifier)
+            assert mock_spawn.call_count >= 2
+
+    def test_conduct_debate_increments_rounds(self):
+        """Test _conduct_debate increments debate_rounds in session."""
+        orchestrator = OrchestratorAgent(max_debate_rounds=1)
+        session = SessionState(
+            session_id="debate_test2", user_prompt="Test",
+            max_debate_rounds=1,
+        )
+
+        mock_result = {"status": "success", "output": "Position"}
+        with patch.object(orchestrator, "_spawn_agent", return_value=mock_result):
+            orchestrator._conduct_debate(session, {"user_prompt": "Test"})
+
+            assert session.debate_rounds >= 1
+
+    def test_conduct_debate_stops_on_budget_exceeded(self):
+        """Test _conduct_debate stops when budget is exceeded."""
+        orchestrator = OrchestratorAgent(max_budget_usd=0.001, max_debate_rounds=3)
+        session = SessionState(
+            session_id="debate_budget", user_prompt="Test",
+            max_debate_rounds=3, max_budget_usd=0.001,
+        )
+        session.total_cost_usd = 1.0  # Already over budget
+
+        mock_result = {"status": "success", "output": "Position"}
+        with patch.object(orchestrator, "_spawn_agent", return_value=mock_result) as mock_spawn:
+            orchestrator._conduct_debate(session, {"user_prompt": "Test"})
+
+            # Should stop early due to budget
+            assert mock_spawn.call_count <= 4  # At most one round of participants
