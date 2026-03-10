@@ -13,7 +13,7 @@
 | Category | FRs | Implemented | Partial | Not Implemented |
 |----------|-----|-------------|---------|-----------------|
 | 5.1 Operational Agents | FR-001 to FR-012 | **12** | 0 | 0 |
-| 5.2 Strategic Council | FR-013 to FR-015 | 2 | **1** | 0 |
+| 5.2 Strategic Council | FR-013 to FR-015 | **3** | 0 | 0 |
 | 5.3 Dynamic SME Personas | FR-016 to FR-019 | **4** | 0 | 0 |
 | 5.4 Agent Isolation & Context | FR-020 to FR-021 | **2** | 0 | 0 |
 | 5.5 Complexity Routing | FR-022 to FR-023 | **2** | 0 | 0 |
@@ -29,14 +29,9 @@
 | 5.15 Project Setup | FR-056 to FR-058 | **3** | 0 | 0 |
 | 5.16 Testing | FR-059 to FR-060 | **2** | 0 | 0 |
 | 5.17 Documentation | FR-061 to FR-062 | **2** | 0 | 0 |
-| **TOTAL** | **62** | **61** | **1** | **0** |
+| **TOTAL** | **62** | **62** | **0** | **0** |
 
-**Overall: 61/62 Fully Implemented, 1 Partially Implemented (98.4%)**
-
-### Critical Finding
-
-**FR-013 (Domain Council Chair)** has one missing acceptance criterion:
-- `AGENT_ALLOWED_TOOLS["council_chair"] = []` should be `["Read", "Skill"]` in `src/core/sdk_integration.py`
+**Overall: 62/62 Fully Implemented (100%)**
 
 ---
 
@@ -165,7 +160,7 @@
 
 ## Detailed Audit: FR-013 to FR-015 (Strategic Council)
 
-### FR-013: Domain Council Chair — PARTIALLY IMPLEMENTED
+### FR-013: Domain Council Chair — IMPLEMENTED
 
 | AC | Criterion | Status | Evidence |
 |----|-----------|--------|----------|
@@ -173,9 +168,7 @@
 | AC-2 | Returns SMESelectionReport | Pass | `src/schemas/council.py` |
 | AC-3 | Max 3 SMEs selected | Pass | Enforced via max_length=3 |
 | AC-4 | SME mapped to skills | Pass | skill_files in registry |
-| AC-5 | allowedTools: [Skill, Read]. Model: opus | **FAIL** | `AGENT_ALLOWED_TOOLS["council_chair"] = []` — empty list |
-
-**Issue:** `src/core/sdk_integration.py` line ~104 sets council_chair tools to `[]` instead of `["Read", "Skill"]`.
+| AC-5 | allowedTools: [Skill, Read]. Model: opus | Pass | `src/core/sdk_integration.py:104` `["Read", "Skill"]` |
 
 ### FR-014: Quality Arbiter — IMPLEMENTED
 

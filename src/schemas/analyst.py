@@ -4,7 +4,7 @@ Analyst Agent Schemas
 Pydantic v2 models for the Task Analyst subagent.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional
 from enum import Enum
 
@@ -102,40 +102,39 @@ class TaskIntelligenceReport(BaseModel):
         description="Confidence in this analysis (0-1)"
     )
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "literal_request": "Write a REST API for user management",
-                "inferred_intent": "Create a backend service for CRUD operations on user data",
-                "sub_tasks": [
-                    {
-                        "description": "Design data models",
-                        "dependencies": [],
-                        "estimated_complexity": "medium"
-                    },
-                    {
-                        "description": "Implement endpoints",
-                        "dependencies": ["Design data models"],
-                        "estimated_complexity": "high"
-                    }
-                ],
-                "missing_info": [
-                    {
-                        "requirement": "Authentication method",
-                        "severity": "important",
-                        "impact": "Security design depends on this",
-                        "default_assumption": "JWT-based authentication"
-                    }
-                ],
-                "assumptions": [
-                    "Using Python/FastAPI",
-                    "PostgreSQL database",
-                    "RESTful architecture"
-                ],
-                "modality": "code",
-                "recommended_approach": "Start with data models, then implement endpoints",
-                "escalation_needed": False,
-                "suggested_tier": 2,
-                "confidence": 0.9
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "literal_request": "Write a REST API for user management",
+            "inferred_intent": "Create a backend service for CRUD operations on user data",
+            "sub_tasks": [
+                {
+                    "description": "Design data models",
+                    "dependencies": [],
+                    "estimated_complexity": "medium"
+                },
+                {
+                    "description": "Implement endpoints",
+                    "dependencies": ["Design data models"],
+                    "estimated_complexity": "high"
+                }
+            ],
+            "missing_info": [
+                {
+                    "requirement": "Authentication method",
+                    "severity": "important",
+                    "impact": "Security design depends on this",
+                    "default_assumption": "JWT-based authentication"
+                }
+            ],
+            "assumptions": [
+                "Using Python/FastAPI",
+                "PostgreSQL database",
+                "RESTful architecture"
+            ],
+            "modality": "code",
+            "recommended_approach": "Start with data models, then implement endpoints",
+            "escalation_needed": False,
+            "suggested_tier": 2,
+            "confidence": 0.9
         }
+    })

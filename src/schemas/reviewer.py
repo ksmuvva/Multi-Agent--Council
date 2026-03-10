@@ -4,7 +4,7 @@ Reviewer Agent Schemas
 Pydantic v2 models for the Final Reviewer subagent.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional
 from enum import Enum
 
@@ -127,51 +127,50 @@ class ReviewVerdict(BaseModel):
         description="Whether Quality Arbiter was involved (Tier 4)"
     )
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "verdict": "PASS",
-                "confidence": 0.9,
-                "quality_gate_results": {
-                    "completeness": {
-                        "check_name": "Completeness",
-                        "passed": True,
-                        "notes": "All requirements addressed",
-                        "severity_if_failed": "high"
-                    },
-                    "consistency": {
-                        "check_name": "Consistency",
-                        "passed": True,
-                        "notes": "All contributions consistent",
-                        "severity_if_failed": "medium"
-                    },
-                    "verifier_signoff": {
-                        "check_name": "Verifier Sign-off",
-                        "passed": True,
-                        "notes": "Verifier passed",
-                        "severity_if_failed": "critical"
-                    },
-                    "critic_findings_addressed": {
-                        "check_name": "Critic Findings",
-                        "passed": True,
-                        "notes": "All critic issues addressed",
-                        "severity_if_failed": "high"
-                    },
-                    "readability": {
-                        "check_name": "Readability",
-                        "passed": True,
-                        "notes": "Clear and well-structured",
-                        "severity_if_failed": "low"
-                    }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "verdict": "PASS",
+            "confidence": 0.9,
+            "quality_gate_results": {
+                "completeness": {
+                    "check_name": "Completeness",
+                    "passed": True,
+                    "notes": "All requirements addressed",
+                    "severity_if_failed": "high"
                 },
-                "reasons": [
-                    "All quality checks passed",
-                    "Verifier and Critic both satisfied",
-                    "Meets all original requirements"
-                ],
-                "revision_instructions": [],
-                "revision_count": 0,
-                "can_revise": True,
-                "summary": "Output passes all quality gates. Ready for formatting."
-            }
+                "consistency": {
+                    "check_name": "Consistency",
+                    "passed": True,
+                    "notes": "All contributions consistent",
+                    "severity_if_failed": "medium"
+                },
+                "verifier_signoff": {
+                    "check_name": "Verifier Sign-off",
+                    "passed": True,
+                    "notes": "Verifier passed",
+                    "severity_if_failed": "critical"
+                },
+                "critic_findings_addressed": {
+                    "check_name": "Critic Findings",
+                    "passed": True,
+                    "notes": "All critic issues addressed",
+                    "severity_if_failed": "high"
+                },
+                "readability": {
+                    "check_name": "Readability",
+                    "passed": True,
+                    "notes": "Clear and well-structured",
+                    "severity_if_failed": "low"
+                }
+            },
+            "reasons": [
+                "All quality checks passed",
+                "Verifier and Critic both satisfied",
+                "Meets all original requirements"
+            ],
+            "revision_instructions": [],
+            "revision_count": 0,
+            "can_revise": True,
+            "summary": "Output passes all quality gates. Ready for formatting."
         }
+    })

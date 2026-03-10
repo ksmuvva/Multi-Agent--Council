@@ -7,7 +7,7 @@ to appropriate agent configurations.
 
 from enum import IntEnum
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TierLevel(IntEnum):
@@ -60,20 +60,19 @@ class TierClassification(BaseModel):
         description="Keywords that influenced this classification"
     )
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "tier": 3,
-                "reasoning": "Complex task requiring domain expertise in security and cloud architecture",
-                "confidence": 0.85,
-                "estimated_agents": 12,
-                "requires_council": True,
-                "requires_smes": True,
-                "suggested_sme_count": 2,
-                "escalation_risk": 0.2,
-                "keywords_found": ["security", "azure", "threat model"]
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "tier": 3,
+            "reasoning": "Complex task requiring domain expertise in security and cloud architecture",
+            "confidence": 0.85,
+            "estimated_agents": 12,
+            "requires_council": True,
+            "requires_smes": True,
+            "suggested_sme_count": 2,
+            "escalation_risk": 0.2,
+            "keywords_found": ["security", "azure", "threat model"]
         }
+    })
 
 
 # =============================================================================

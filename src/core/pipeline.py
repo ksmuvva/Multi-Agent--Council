@@ -7,7 +7,7 @@ Reasoning System.
 
 from enum import Enum
 from typing import List, Optional, Dict, Any, Callable
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from dataclasses import dataclass
 
 from .complexity import TierLevel, TierClassification
@@ -70,21 +70,20 @@ class PipelineState(BaseModel):
     start_time: Optional[str] = None
     end_time: Optional[str] = None
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "current_phase": "Phase 5: Solution Generation",
-                "completed_phases": [
-                    "Phase 1: Task Intelligence",
-                    "Phase 3: Planning"
-                ],
-                "tier_level": 3,
-                "revision_cycle": 0,
-                "debate_rounds": 0,
-                "total_cost_usd": 0.45,
-                "total_tokens": 12500
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "current_phase": "Phase 5: Solution Generation",
+            "completed_phases": [
+                "Phase 1: Task Intelligence",
+                "Phase 3: Planning"
+            ],
+            "tier_level": 3,
+            "revision_cycle": 0,
+            "debate_rounds": 0,
+            "total_cost_usd": 0.45,
+            "total_tokens": 12500
         }
+    })
 
 
 class ExecutionPipeline:

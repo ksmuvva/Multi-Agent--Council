@@ -4,7 +4,7 @@ Clarifier Agent Schemas
 Pydantic v2 models for the Clarifier subagent.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional
 from enum import Enum
 
@@ -72,27 +72,26 @@ class ClarificationRequest(BaseModel):
         description="Expected output quality if using all defaults"
     )
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "total_questions": 2,
-                "questions": [
-                    {
-                        "question": "Which database system should be used?",
-                        "priority": "high",
-                        "reason": "Affects schema design and query syntax",
-                        "context": "The API will need persistent data storage",
-                        "default_answer": "PostgreSQL",
-                        "impact_if_unanswered": {
-                            "quality_impact": "May need to rewrite queries later",
-                            "risk_level": "medium",
-                            "potential_revisions": ["Change ORM configuration", "Update SQL syntax"]
-                        },
-                        "answer_options": ["PostgreSQL", "MySQL", "MongoDB", "SQLite"]
-                    }
-                ],
-                "recommended_workflow": "Present critical questions first, allow user to skip",
-                "can_proceed_with_defaults": True,
-                "expected_quality_with_defaults": "Good, but may require revisions"
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "total_questions": 2,
+            "questions": [
+                {
+                    "question": "Which database system should be used?",
+                    "priority": "high",
+                    "reason": "Affects schema design and query syntax",
+                    "context": "The API will need persistent data storage",
+                    "default_answer": "PostgreSQL",
+                    "impact_if_unanswered": {
+                        "quality_impact": "May need to rewrite queries later",
+                        "risk_level": "medium",
+                        "potential_revisions": ["Change ORM configuration", "Update SQL syntax"]
+                    },
+                    "answer_options": ["PostgreSQL", "MySQL", "MongoDB", "SQLite"]
+                }
+            ],
+            "recommended_workflow": "Present critical questions first, allow user to skip",
+            "can_proceed_with_defaults": True,
+            "expected_quality_with_defaults": "Good, but may require revisions"
         }
+    })

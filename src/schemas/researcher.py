@@ -4,7 +4,7 @@ Researcher Agent Schemas
 Pydantic v2 models for the Researcher subagent.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional
 from enum import Enum
 
@@ -105,28 +105,27 @@ class EvidenceBrief(BaseModel):
         description="Whether more research is needed"
     )
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "research_topic": "Best practices for REST API authentication",
-                "summary": "JWT-based authentication is widely recommended",
-                "findings": [
-                    {
-                        "claim": "JWT tokens are the industry standard",
-                        "confidence": "high",
-                        "sources": [
-                            {
-                                "url": "https://auth0.com/docs/secure/tokens",
-                                "title": "Auth0 Documentation",
-                                "reliability": "high"
-                            }
-                        ],
-                        "context": "Multiple authoritative sources agree"
-                    }
-                ],
-                "conflicts": [],
-                "gaps": [],
-                "overall_confidence": "high",
-                "recommended_approach": "Implement JWT with refresh token rotation"
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "research_topic": "Best practices for REST API authentication",
+            "summary": "JWT-based authentication is widely recommended",
+            "findings": [
+                {
+                    "claim": "JWT tokens are the industry standard",
+                    "confidence": "high",
+                    "sources": [
+                        {
+                            "url": "https://auth0.com/docs/secure/tokens",
+                            "title": "Auth0 Documentation",
+                            "reliability": "high"
+                        }
+                    ],
+                    "context": "Multiple authoritative sources agree"
+                }
+            ],
+            "conflicts": [],
+            "gaps": [],
+            "overall_confidence": "high",
+            "recommended_approach": "Implement JWT with refresh token rotation"
         }
+    })

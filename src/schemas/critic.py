@@ -4,7 +4,7 @@ Critic Agent Schemas
 Pydantic v2 models for the Adversarial Critic subagent.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional
 from enum import Enum
 
@@ -163,40 +163,39 @@ class CritiqueReport(BaseModel):
     )
     would_approve: bool = Field(..., description="Whether this passes the critique")
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "solution_summary": "REST API for user management",
-                "attacks": [
-                    {
-                        "vector": "logic",
-                        "finding": "Authentication flow has circular logic",
-                        "severity": "critical",
-                        "suggestion": "Simplify the auth flow"
-                    }
-                ],
-                "logic_attack": {
-                    "invalid_arguments": ["Auth token validation is circular"],
-                    "fallacies_identified": ["Begging the question in token refresh"]
-                },
-                "completeness_attack": {
-                    "missing": ["Rate limiting", "Input validation on all endpoints"]
-                },
-                "quality_attack": {
-                    "weaknesses": ["No error handling for database failures"],
-                    "improvements": ["Add comprehensive error handling"]
-                },
-                "contradiction_scan": {
-                    "inconsistencies": ["API returns 404 for auth failures"]
-                },
-                "red_team_argumentation": {
-                    "adversary_perspective": "No rate limiting = easy DDoS target",
-                    "attack_surface": ["All endpoints are unauthenticated"],
-                    "failure_modes": ["Database connection exhaustion"]
-                },
-                "overall_assessment": "Has potential but needs security hardening",
-                "critical_issues": ["Missing authentication", "No rate limiting"],
-                "recommended_revisions": ["Add authentication middleware", "Add rate limiting"],
-                "would_approve": False
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "solution_summary": "REST API for user management",
+            "attacks": [
+                {
+                    "vector": "logic",
+                    "finding": "Authentication flow has circular logic",
+                    "severity": "critical",
+                    "suggestion": "Simplify the auth flow"
+                }
+            ],
+            "logic_attack": {
+                "invalid_arguments": ["Auth token validation is circular"],
+                "fallacies_identified": ["Begging the question in token refresh"]
+            },
+            "completeness_attack": {
+                "missing": ["Rate limiting", "Input validation on all endpoints"]
+            },
+            "quality_attack": {
+                "weaknesses": ["No error handling for database failures"],
+                "improvements": ["Add comprehensive error handling"]
+            },
+            "contradiction_scan": {
+                "inconsistencies": ["API returns 404 for auth failures"]
+            },
+            "red_team_argumentation": {
+                "adversary_perspective": "No rate limiting = easy DDoS target",
+                "attack_surface": ["All endpoints are unauthenticated"],
+                "failure_modes": ["Database connection exhaustion"]
+            },
+            "overall_assessment": "Has potential but needs security hardening",
+            "critical_issues": ["Missing authentication", "No rate limiting"],
+            "recommended_revisions": ["Add authentication middleware", "Add rate limiting"],
+            "would_approve": False
         }
+    })

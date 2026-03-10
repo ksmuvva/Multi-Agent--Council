@@ -4,7 +4,7 @@ Code Reviewer Agent Schemas
 Pydantic v2 models for the Code Reviewer subagent.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional
 from enum import Enum
 
@@ -134,32 +134,31 @@ class CodeReviewReport(BaseModel):
         description="Prioritized recommended actions"
     )
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "overall_assessment": "Code is functional but has security concerns",
-                "pass_fail": False,
-                "findings": [
-                    {
-                        "severity": "critical",
-                        "category": "security",
-                        "file_path": "api/auth.py",
-                        "line_number": 42,
-                        "issue": "SQL injection vulnerability",
-                        "recommendation": "Use parameterized queries"
-                    }
-                ],
-                "security_scan": {
-                    "vulnerabilities_found": 1,
-                    "sql_injection_risk": True
-                },
-                "performance_analysis": {
-                    "optimization_opportunities": ["Add caching for user lookups"]
-                },
-                "style_compliance": {
-                    "pep8_compliant": True
-                },
-                "error_handling_complete": False,
-                "test_coverage_assessment": "No tests found"
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "overall_assessment": "Code is functional but has security concerns",
+            "pass_fail": False,
+            "findings": [
+                {
+                    "severity": "critical",
+                    "category": "security",
+                    "file_path": "api/auth.py",
+                    "line_number": 42,
+                    "issue": "SQL injection vulnerability",
+                    "recommendation": "Use parameterized queries"
+                }
+            ],
+            "security_scan": {
+                "vulnerabilities_found": 1,
+                "sql_injection_risk": True
+            },
+            "performance_analysis": {
+                "optimization_opportunities": ["Add caching for user lookups"]
+            },
+            "style_compliance": {
+                "pep8_compliant": True
+            },
+            "error_handling_complete": False,
+            "test_coverage_assessment": "No tests found"
         }
+    })

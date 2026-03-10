@@ -4,7 +4,7 @@ SME (Subject Matter Expert) Persona Schemas
 Pydantic v2 models for SME persona interactions.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
@@ -162,43 +162,42 @@ class SMEAdvisoryReport(BaseModel):
         description="Other domains this SME consulted"
     )
 
-    class Config:
-        json_schema_extra = {
-            "example": {
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "sme_persona": "Security Analyst",
+            "interaction_mode": "advisor",
+            "domain": "Application Security",
+            "task_context": "Reviewing authentication implementation",
+            "findings": [
+                "No rate limiting on auth endpoint",
+                "Password complexity requirements are weak"
+            ],
+            "recommendations": [
+                "Add rate limiting to prevent brute force",
+                "Implement stronger password requirements",
+                "Consider multi-factor authentication"
+            ],
+            "confidence": 0.9,
+            "caveats": [
+                "Full security audit would require penetration testing"
+            ],
+            "advisor_report": {
                 "sme_persona": "Security Analyst",
-                "interaction_mode": "advisor",
-                "domain": "Application Security",
-                "task_context": "Reviewing authentication implementation",
-                "findings": [
-                    "No rate limiting on auth endpoint",
-                    "Password complexity requirements are weak"
+                "reviewed_content": "Authentication flow",
+                "domain_corrections": [
+                    "Add password hashing with bcrypt",
+                    "Implement account lockout"
+                ],
+                "missing_considerations": [
+                    "No consideration for session timeout",
+                    "Missing secure cookie flags"
                 ],
                 "recommendations": [
-                    "Add rate limiting to prevent brute force",
-                    "Implement stronger password requirements",
-                    "Consider multi-factor authentication"
+                    "Use OWASP security best practices"
                 ],
-                "confidence": 0.9,
-                "caveats": [
-                    "Full security audit would require penetration testing"
-                ],
-                "advisor_report": {
-                    "sme_persona": "Security Analyst",
-                    "reviewed_content": "Authentication flow",
-                    "domain_corrections": [
-                        "Add password hashing with bcrypt",
-                        "Implement account lockout"
-                    ],
-                    "missing_considerations": [
-                        "No consideration for session timeout",
-                        "Missing secure cookie flags"
-                    ],
-                    "recommendations": [
-                        "Use OWASP security best practices"
-                    ],
-                    "confidence": 0.9
-                },
-                "skills_used": ["azure-architect"],
-                "additional_domains_consulted": []
-            }
+                "confidence": 0.9
+            },
+            "skills_used": ["azure-architect"],
+            "additional_domains_consulted": []
         }
+    })

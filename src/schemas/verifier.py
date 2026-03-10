@@ -4,7 +4,7 @@ Verifier Agent Schemas
 Pydantic v2 models for the Verifier (Hallucination Guard) subagent.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional
 from enum import Enum
 
@@ -111,37 +111,36 @@ class VerificationReport(BaseModel):
         description="Human-readable summary of verification"
     )
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "total_claims_checked": 10,
-                "claims": [
-                    {
-                        "claim_text": "Python was released in 1991",
-                        "confidence": 10,
-                        "fabrication_risk": "low",
-                        "source": "Multiple sources",
-                        "verification_method": "Web search + documentation",
-                        "status": "verified"
-                    },
-                    {
-                        "claim_text": "Guido van Rossum is American",
-                        "confidence": 2,
-                        "fabrication_risk": "high",
-                        "source": None,
-                        "verification_method": "Could not verify",
-                        "status": "unverified",
-                        "correction": "Guido van Rossum is Dutch"
-                    }
-                ],
-                "verified_claims": 9,
-                "unverified_claims": 1,
-                "contradicted_claims": 0,
-                "fabricated_claims": 0,
-                "overall_reliability": 0.85,
-                "verdict": "PASS",
-                "flagged_claims": [],
-                "recommended_corrections": [],
-                "verification_summary": "9 out of 10 claims verified. One unverified claim corrected."
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "total_claims_checked": 10,
+            "claims": [
+                {
+                    "claim_text": "Python was released in 1991",
+                    "confidence": 10,
+                    "fabrication_risk": "low",
+                    "source": "Multiple sources",
+                    "verification_method": "Web search + documentation",
+                    "status": "verified"
+                },
+                {
+                    "claim_text": "Guido van Rossum is American",
+                    "confidence": 2,
+                    "fabrication_risk": "high",
+                    "source": None,
+                    "verification_method": "Could not verify",
+                    "status": "unverified",
+                    "correction": "Guido van Rossum is Dutch"
+                }
+            ],
+            "verified_claims": 9,
+            "unverified_claims": 1,
+            "contradicted_claims": 0,
+            "fabricated_claims": 0,
+            "overall_reliability": 0.85,
+            "verdict": "PASS",
+            "flagged_claims": [],
+            "recommended_corrections": [],
+            "verification_summary": "9 out of 10 claims verified. One unverified claim corrected."
         }
+    })

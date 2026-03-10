@@ -4,7 +4,7 @@ Planner Agent Schemas
 Pydantic v2 models for the Planner subagent.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional, Set
 from enum import Enum
 
@@ -106,43 +106,42 @@ class ExecutionPlan(BaseModel):
         description="Alternative approaches if primary plan fails"
     )
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "task_summary": "Create a REST API for user management",
-                "total_steps": 4,
-                "steps": [
-                    {
-                        "step_number": 1,
-                        "description": "Design data models",
-                        "agent_assignments": [
-                            {
-                                "agent_name": "Data Architect SME",
-                                "role": "Schema design",
-                                "reason": "Domain expertise in data modeling"
-                            }
-                        ],
-                        "dependencies": [],
-                        "can_parallelize": False,
-                        "estimated_complexity": "medium"
-                    },
-                    {
-                        "step_number": 2,
-                        "description": "Implement API endpoints",
-                        "agent_assignments": [
-                            {
-                                "agent_name": "Executor",
-                                "role": "Code generation",
-                                "reason": "Create the implementation"
-                            }
-                        ],
-                        "dependencies": [1],
-                        "can_parallelize": False,
-                        "estimated_complexity": "high"
-                    }
-                ],
-                "parallel_groups": [],
-                "critical_path": [1, 2],
-                "estimated_duration_minutes": 15
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "task_summary": "Create a REST API for user management",
+            "total_steps": 4,
+            "steps": [
+                {
+                    "step_number": 1,
+                    "description": "Design data models",
+                    "agent_assignments": [
+                        {
+                            "agent_name": "Data Architect SME",
+                            "role": "Schema design",
+                            "reason": "Domain expertise in data modeling"
+                        }
+                    ],
+                    "dependencies": [],
+                    "can_parallelize": False,
+                    "estimated_complexity": "medium"
+                },
+                {
+                    "step_number": 2,
+                    "description": "Implement API endpoints",
+                    "agent_assignments": [
+                        {
+                            "agent_name": "Executor",
+                            "role": "Code generation",
+                            "reason": "Create the implementation"
+                        }
+                    ],
+                    "dependencies": [1],
+                    "can_parallelize": False,
+                    "estimated_complexity": "high"
+                }
+            ],
+            "parallel_groups": [],
+            "critical_path": [1, 2],
+            "estimated_duration_minutes": 15
         }
+    })

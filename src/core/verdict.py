@@ -7,7 +7,7 @@ based on Verifier and Critic outcomes.
 
 from enum import Enum
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Verdict(str, Enum):
@@ -35,18 +35,17 @@ class MatrixOutcome(BaseModel):
     can_retry: bool = Field(..., description="Whether another retry is allowed")
     max_revisions: int = Field(default=2, description="Maximum revision cycles")
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "verifier_verdict": "PASS",
-                "critic_verdict": "FAIL",
-                "action": "executor_revise",
-                "reason": "Verifier passed but Critic found issues - Executor should revise",
-                "revision_cycle": 1,
-                "can_retry": True,
-                "max_revisions": 2
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "verifier_verdict": "PASS",
+            "critic_verdict": "FAIL",
+            "action": "executor_revise",
+            "reason": "Verifier passed but Critic found issues - Executor should revise",
+            "revision_cycle": 1,
+            "can_retry": True,
+            "max_revisions": 2
         }
+    })
 
 
 # =============================================================================
