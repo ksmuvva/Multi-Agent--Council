@@ -190,6 +190,9 @@ def chat(
 
     emit_system_message(f"Chat session started: {session_id_to_use}", "info", session_id_to_use)
 
+    # Create orchestrator once and reuse across the session
+    orchestrator = create_orchestrator()
+
     while True:
         try:
             # Get user input
@@ -207,16 +210,21 @@ def chat(
             if prompt.lower() in ["exit", "quit", "q", "x"]:
                 break
 
+            # Auto-detect complexity tier
+            classification = classify_complexity(prompt)
+            tier_level = int(classification.tier)
+
             # Process the query
-            emit_task_started("cli", prompt, 2, session_id_to_use)
+            emit_task_started("cli", prompt, tier_level, session_id_to_use)
 
-            console.print("[System] Processing...\n", style="dim")
+            console.print(
+                f"[System] Processing (Tier {tier_level}: {classification.reasoning})...\n",
+                style="dim",
+            )
 
-            # Create orchestrator and execute
-            orchestrator = create_orchestrator()
             result = orchestrator.execute(
                 user_prompt=prompt,
-                tier_level=2,  # Default to standard tier for chat
+                tier_level=tier_level,
                 session_id=session_id_to_use,
                 format="markdown",
             )
@@ -229,7 +237,7 @@ def chat(
             emit_task_completed(
                 "cli",
                 "Response delivered",
-                0,
+                result.get("duration_seconds", 0),
                 session_id_to_use,
             )
 

@@ -387,24 +387,56 @@ def _execute_sdk_query(
     # For Anthropic provider, try SDK first, then direct API
     try:
         from claude_agent_sdk import query as sdk_query
+        from claude_agent_sdk import ClaudeAgentOptions as SdkOptions
+        import asyncio
 
-        result = sdk_query(
-            prompt=input_data,
-            system=sdk_kwargs.get("system_prompt", ""),
+        options = SdkOptions(
             model=sdk_kwargs.get("model", "claude-sonnet-4-20250514"),
+            system_prompt=sdk_kwargs.get("system_prompt", ""),
             max_turns=sdk_kwargs.get("max_turns", 30),
-            allowed_tools=sdk_kwargs.get("allowed_tools"),
+            allowed_tools=sdk_kwargs.get("allowed_tools", []),
             output_format=sdk_kwargs.get("output_format"),
         )
 
+        async def _run_sdk():
+            result_text = ""
+            async for message in sdk_query(prompt=input_data, options=options):
+                if hasattr(message, "result"):
+                    result_text = message.result
+                elif hasattr(message, "content"):
+                    for block in (message.content if isinstance(message.content, list) else [message.content]):
+                        if hasattr(block, "text"):
+                            result_text += block.text
+            return result_text
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # Already in an async context — use a new thread
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                output = pool.submit(lambda: asyncio.run(_run_sdk())).result(timeout=120)
+        else:
+            output = asyncio.run(_run_sdk())
+
         return {
-            "output": result.get("response", result.get("output", "")),
-            "tokens_used": result.get("usage", {}).get("total_tokens", 0),
-            "cost_usd": result.get("cost", 0.0),
+            "output": output,
+            "tokens_used": 0,
+            "cost_usd": 0.0,
         }
 
     except ImportError:
         # Fall back to direct Anthropic API
+        return _execute_anthropic_api(sdk_kwargs, input_data)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Claude Agent SDK call failed (%s), falling back to Anthropic API: %s",
+            type(e).__name__, e,
+        )
         return _execute_anthropic_api(sdk_kwargs, input_data)
 
 
@@ -461,11 +493,13 @@ def _execute_openai_compatible_api(
         )
         return _simulate_response(sdk_kwargs, input_data)
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(
-            "OpenAI-compatible API call failed (%s), falling back to simulation: %s",
-            type(e).__name__, e,
-        )
+        if not getattr(_execute_openai_compatible_api, "_warned", False):
+            import logging
+            logging.getLogger(__name__).warning(
+                "OpenAI-compatible API call failed (%s), falling back to simulation: %s",
+                type(e).__name__, e,
+            )
+            _execute_openai_compatible_api._warned = True
         return _simulate_response(sdk_kwargs, input_data)
 
 

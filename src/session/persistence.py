@@ -271,11 +271,11 @@ class SessionPersistence:
                 json.dump(data, f, indent=2, default=str)
 
             self._logger.info(
-                "session_saved",
-                session_id=session.session_id,
-                path=str(session_path),
-                messages=len(session.messages),
-                outputs=len(session.agent_outputs),
+                "session_saved session_id=%s path=%s messages=%d outputs=%d",
+                session.session_id,
+                str(session_path),
+                len(session.messages),
+                len(session.agent_outputs),
             )
 
     def load_session(self, session_id: str) -> Optional[SessionState]:
@@ -292,7 +292,7 @@ class SessionPersistence:
             session_path = self.get_session_path(session_id)
 
             if not session_path.exists():
-                self._logger.warning("session_not_found", session_id=session_id)
+                self._logger.warning("session_not_found session_id=%s", session_id)
                 return None
 
             try:
@@ -405,7 +405,7 @@ class SessionPersistence:
             import shutil
             shutil.rmtree(session_path.parent)
 
-            self._logger.info("session_deleted", session_id=session_id)
+            self._logger.info("session_deleted session_id=%s", session_id)
 
             return True
 
@@ -425,7 +425,7 @@ class SessionPersistence:
                     shutil.rmtree(session_dir)
                     count += 1
 
-        self._logger.info("all_sessions_deleted", count=count)
+        self._logger.info("all_sessions_deleted count=%d", count)
 
         return count
 

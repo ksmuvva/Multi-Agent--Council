@@ -297,14 +297,14 @@ class ExecutionPipeline:
 
     def _get_council_agents(self) -> List[str]:
         """Get Council agents based on tier."""
-        if self.tier_level >= TierLevel.DEEP:
-            return ["Domain Council Chair"]
-        elif self.tier_level == TierLevel.ADVERSARIAL:
+        if self.tier_level == TierLevel.ADVERSARIAL:
             return [
                 "Domain Council Chair",
                 "Quality Arbiter",
                 "Ethics & Safety Advisor"
             ]
+        elif self.tier_level >= TierLevel.DEEP:
+            return ["Domain Council Chair"]
         return []
 
     def _get_review_agents(self) -> List[str]:

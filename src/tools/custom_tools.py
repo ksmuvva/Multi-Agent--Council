@@ -382,28 +382,49 @@ def cost_estimate(
     Returns:
         Dictionary with cost breakdown
     """
-    # Token costs per 1M tokens (approximate)
+    # Token costs per 1M tokens (approximate) — keyed by model name
     INPUT_COSTS = {
         "claude-3-5-opus-20240507": 15.0,
         "claude-3-5-sonnet-20241022": 3.0,
         "claude-3-5-haiku-20250101": 0.25,
+        # OpenAI
+        "gpt-4o": 2.5,
+        "gpt-4o-mini": 0.15,
+        # ZhiPu GLM
+        "glm-4-plus": 2.0,
+        "glm-4": 1.0,
     }
 
     OUTPUT_COSTS = {
         "claude-3-5-opus-20240507": 75.0,
-        "claude-5-5-sonnet-20241022": 15.0,
+        "claude-3-5-sonnet-20241022": 15.0,
         "claude-3-5-haiku-20250101": 1.25,
+        # OpenAI
+        "gpt-4o": 10.0,
+        "gpt-4o-mini": 0.6,
+        # ZhiPu GLM
+        "glm-4-plus": 8.0,
+        "glm-4": 4.0,
     }
 
-    # Model selection by tier
-    TIER_MODELS = {
-        1: "claude-3-5-haiku-20250101",  # Fast, cheap
-        2: "claude-3-5-sonnet-20241022",
-        3: "claude-3-5-opus-20240507",
-        4: "claude-3-5-opus-20240507",  # Adversarial needs best
-    }
+    # Resolve the model from settings when available
+    try:
+        from src.config import get_model_for_agent
+        model = get_model_for_agent("default")
+    except Exception:
+        # Fallback to tier-based Claude defaults
+        TIER_MODELS = {
+            1: "claude-3-5-haiku-20250101",
+            2: "claude-3-5-sonnet-20241022",
+            3: "claude-3-5-opus-20240507",
+            4: "claude-3-5-opus-20240507",
+        }
+        model = TIER_MODELS.get(tier, "claude-3-5-sonnet-20241022")
 
-    model = TIER_MODELS.get(tier, "claude-3-5-sonnet-20241022")
+    # Use generic fallback pricing for unknown models
+    if model not in INPUT_COSTS:
+        INPUT_COSTS[model] = 2.0
+        OUTPUT_COSTS[model] = 8.0
 
     # Estimate tokens per turn
     TOKENS_PER_TURN = {
