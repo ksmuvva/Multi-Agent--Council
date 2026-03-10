@@ -12,6 +12,14 @@ import sys
 import json
 from datetime import datetime
 
+VERSION = "0.1.0"
+
+
+def get_banner() -> str:
+    """Return the CLI banner text."""
+    return f"Multi-Agent Reasoning System v{VERSION}"
+
+
 from src.agents.orchestrator import create_orchestrator
 from src.core.complexity import classify_complexity
 from src.core.ensemble import suggest_ensemble
@@ -263,8 +271,10 @@ def analyze(
     typer.echo(f"  Reasoning: {classification.reasoning}")
     typer.echo(f"")
     typer.echo(f"Estimated Execution:")
-    typer.echo(f"  Agents: {classification.estimated_agent_count}")
-    typer.echo(f"  Estimated time: {classification.estimated_duration_minutes} minutes")
+    typer.echo(f"  Agents: {classification.estimated_agents}")
+    typer.echo(f"  Requires Council: {classification.requires_council}")
+    typer.echo(f"  Requires SMEs: {classification.requires_smes}")
+    typer.echo(f"  Confidence: {classification.confidence:.0%}")
     typer.echo(f"")
 
     # Suggest ensemble
@@ -392,7 +402,7 @@ def knowledge(
 
         for entry in entries[:20]:  # Limit to 20
             typer.echo(f"  📄 {entry.get('topic', 'Unknown')}")
-            typerper.echo(f"     Category: {entry.get('category', 'N/A')}")
+            typer.echo(f"     Category: {entry.get('category', 'N/A')}")
             typer.echo(f"     Date: {entry.get('date', 'N/A')}")
             typer.echo(f"     Tags: {', '.join(entry.get('tags', []))}")
             typer.echo("")
@@ -456,7 +466,7 @@ def personas(
             typer.echo(f"\n📚 {domain}:")
             for persona in domain_personas:
                 typer.echo(f"  • {persona.name}")
-                typerper.echo(f"      ID: {persona.persona_id}")
+                typer.echo(f"      ID: {persona.persona_id}")
                 typer.echo(f"      Skills: {', '.join(persona.skill_files)}")
                 typer.echo(f"      Modes: {', '.join(m.value for m in persona.interaction_modes)}")
         typer.echo("")

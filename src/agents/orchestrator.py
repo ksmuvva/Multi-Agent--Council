@@ -621,6 +621,7 @@ class OrchestratorAgent:
 
     def _spawn_quality_arbiter(self, session: SessionState, input_content: str) -> None:
         """Spawn Quality Arbiter to set acceptance criteria."""
+        start = time.time()
         result = self._spawn_agent(
             session=session,
             agent_name="Quality Arbiter",
@@ -629,8 +630,18 @@ class OrchestratorAgent:
             input_data=input_content,
             model=self.council_model,
         )
-        # Store quality standards for later use
-        session.agent_executions[-1].output = result.get("output")
+        end = time.time()
+        execution = AgentExecution(
+            agent_name="Quality Arbiter",
+            start_time=start,
+            end_time=end,
+            status=result["status"],
+            output=result.get("output"),
+            error=result.get("error"),
+            tokens_used=result.get("tokens_used", 0),
+            cost_usd=result.get("cost_usd", 0.0),
+        )
+        session.agent_executions.append(execution)
 
     def _requires_ethics_review(self, input_content: str) -> bool:
         """Check if Ethics Advisor review is needed."""
@@ -643,6 +654,7 @@ class OrchestratorAgent:
 
     def _spawn_ethics_advisor(self, session: SessionState, input_content: str) -> None:
         """Spawn Ethics & Safety Advisor."""
+        start = time.time()
         result = self._spawn_agent(
             session=session,
             agent_name="Ethics & Safety Advisor",
@@ -651,7 +663,18 @@ class OrchestratorAgent:
             input_data=input_content,
             model=self.council_model,
         )
-        session.agent_executions[-1].output = result.get("output")
+        end = time.time()
+        execution = AgentExecution(
+            agent_name="Ethics & Safety Advisor",
+            start_time=start,
+            end_time=end,
+            status=result["status"],
+            output=result.get("output"),
+            error=result.get("error"),
+            tokens_used=result.get("tokens_used", 0),
+            cost_usd=result.get("cost_usd", 0.0),
+        )
+        session.agent_executions.append(execution)
 
     # ========================================================================
     # Pipeline Execution
@@ -1052,11 +1075,16 @@ class OrchestratorAgent:
 
         return outcome.action
 
-    def _parse_verdict(self, output: Any) -> str:
+    def _parse_verdict(self, output: Any) -> "Verdict":
         """Parse verdict from agent output."""
+        from src.core.verdict import Verdict
+        verdict_str = "PASS"
         if isinstance(output, dict):
-            return output.get("verdict", "PASS").upper()
-        return "PASS"
+            verdict_str = output.get("verdict", "PASS").upper()
+        try:
+            return Verdict(verdict_str)
+        except ValueError:
+            return Verdict.PASS
 
     def _should_trigger_debate(self, session: SessionState, phase: Phase) -> bool:
         """Check if debate should be triggered."""

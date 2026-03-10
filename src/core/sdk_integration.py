@@ -366,14 +366,26 @@ def _execute_sdk_query(
     """
     Execute the actual SDK query.
 
-    This method interfaces with the Claude Agent SDK's query() method
-    or Task tool depending on the execution context.
-
-    In production, this calls claude_agent_sdk.query().
-    Falls back to direct Anthropic API calls if SDK is not available.
+    Routes to the appropriate backend based on the configured LLM provider:
+    1. Claude Agent SDK (if available and provider is Anthropic)
+    2. Direct Anthropic API (if provider is Anthropic)
+    3. OpenAI-compatible API (for custom, openai, together, mistral providers)
+    4. Simulated response (fallback for development)
     """
+    from src.config.settings import get_settings, LLMProvider
+
+    settings = get_settings()
+    provider = settings.llm_provider
+
+    # For non-Anthropic providers, use OpenAI-compatible path directly
+    if provider in (
+        LLMProvider.CUSTOM, LLMProvider.OPENAI, LLMProvider.TOGETHER,
+        LLMProvider.MISTRAL, LLMProvider.GOOGLE,
+    ):
+        return _execute_openai_compatible_api(sdk_kwargs, input_data)
+
+    # For Anthropic provider, try SDK first, then direct API
     try:
-        # Try Claude Agent SDK first
         from claude_agent_sdk import query as sdk_query
 
         result = sdk_query(
@@ -394,6 +406,67 @@ def _execute_sdk_query(
     except ImportError:
         # Fall back to direct Anthropic API
         return _execute_anthropic_api(sdk_kwargs, input_data)
+
+
+def _execute_openai_compatible_api(
+    sdk_kwargs: Dict[str, Any],
+    input_data: str,
+) -> Dict[str, Any]:
+    """
+    Execute via OpenAI-compatible API (works with GLM, OpenAI, Together, etc.).
+    """
+    try:
+        from openai import OpenAI
+
+        settings = get_settings()
+        api_key = settings.get_api_key()
+        base_url = settings.get_base_url()
+
+        client = OpenAI(api_key=api_key, base_url=base_url, max_retries=0, timeout=30.0)
+
+        messages = []
+        system_prompt = sdk_kwargs.get("system_prompt", "")
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": input_data})
+
+        model = sdk_kwargs.get("model", settings.get_model_for_agent("default"))
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=4096,
+            temperature=0.7,
+        )
+
+        output = response.choices[0].message.content or ""
+
+        input_tokens = getattr(response.usage, "prompt_tokens", 0) if response.usage else 0
+        output_tokens = getattr(response.usage, "completion_tokens", 0) if response.usage else 0
+        total_tokens = input_tokens + output_tokens
+
+        # Generic cost estimate
+        cost = (input_tokens / 1_000_000 * 2.0) + (output_tokens / 1_000_000 * 8.0)
+
+        return {
+            "output": output,
+            "tokens_used": total_tokens,
+            "cost_usd": cost,
+        }
+
+    except ImportError:
+        import logging
+        logging.getLogger(__name__).warning(
+            "openai package not installed. Install with: pip install openai"
+        )
+        return _simulate_response(sdk_kwargs, input_data)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "OpenAI-compatible API call failed (%s), falling back to simulation: %s",
+            type(e).__name__, e,
+        )
+        return _simulate_response(sdk_kwargs, input_data)
 
 
 def _execute_anthropic_api(
