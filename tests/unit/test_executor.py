@@ -317,7 +317,8 @@ class TestSDKExecution:
             assert isinstance(result, ExecutionResult)
             assert result.status == "success"
             assert result.output == "Generated solution code here"
-            assert result.quality_score == 0.85
+            # Quality score is derived from output length, not hardcoded
+            assert 0.0 < result.quality_score <= 1.0
 
     def test_execute_via_sdk_failure_returns_none(self, executor):
         """Test _execute_via_sdk returns None when SDK fails."""

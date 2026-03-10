@@ -119,13 +119,23 @@ class FormatterAgent:
         else:
             output = self._format_text(raw_content, context)
 
+        # For document formats, _format_document returns a dict with file info;
+        # extract size_bytes from it if available, otherwise measure the string.
+        if isinstance(output, dict):
+            size_bytes = output.get("size_bytes", 0)
+        elif isinstance(output, str):
+            size_bytes = len(output)
+        else:
+            size_bytes = len(str(output))
+
         return {
             "formatted_output": output,
             "format": format_enum.value,
-            "file_path": file_path if format_enum == OutputFormat.CODE else None,
+            "file_path": (output.get("file_path") if isinstance(output, dict)
+                          else file_path if format_enum == OutputFormat.CODE else None),
             "metadata": {
                 "timestamp": datetime.now().isoformat(),
-                "size_bytes": len(str(output)) if isinstance(output, str) else 0,
+                "size_bytes": size_bytes,
             }
         }
 
@@ -393,8 +403,11 @@ class FormatterAgent:
         title_layout = prs.slide_layouts[0]  # Title Slide layout
         slide = prs.slides.add_slide(title_layout)
         slide.shapes.title.text = title
-        if slide.placeholders[1]:
-            slide.placeholders[1].text = datetime.now().strftime("%Y-%m-%d")
+        try:
+            if 1 in slide.placeholders and slide.placeholders[1]:
+                slide.placeholders[1].text = datetime.now().strftime("%Y-%m-%d")
+        except (KeyError, IndexError):
+            pass  # Not all slide layouts have a subtitle placeholder
 
         # Add content slides
         bullet_layout = prs.slide_layouts[1]  # Title and Content layout

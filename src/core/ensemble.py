@@ -883,26 +883,29 @@ class RequirementsWorkshop(EnsemblePattern):
 # Ensemble Registry
 # =============================================================================
 
-ENSEMBLE_REGISTRY: Dict[EnsembleType, "EnsemblePattern"] = {
-    EnsembleType.ARCHITECTURE_REVIEW_BOARD: ArchitectureReviewBoard(),
-    EnsembleType.CODE_SPRINT: CodeSprint(),
-    EnsembleType.RESEARCH_COUNCIL: ResearchCouncil(),
-    EnsembleType.DOCUMENT_ASSEMBLY: DocumentAssembly(),
-    EnsembleType.REQUIREMENTS_WORKSHOP: RequirementsWorkshop(),
+ENSEMBLE_REGISTRY: Dict[EnsembleType, type] = {
+    EnsembleType.ARCHITECTURE_REVIEW_BOARD: ArchitectureReviewBoard,
+    EnsembleType.CODE_SPRINT: CodeSprint,
+    EnsembleType.RESEARCH_COUNCIL: ResearchCouncil,
+    EnsembleType.DOCUMENT_ASSEMBLY: DocumentAssembly,
+    EnsembleType.REQUIREMENTS_WORKSHOP: RequirementsWorkshop,
 }
 
 
 def get_ensemble(ensemble_type: EnsembleType) -> Optional[EnsemblePattern]:
     """
-    Get an ensemble pattern by type.
+    Get a *new* ensemble pattern instance by type.
+
+    A fresh instance is created on each call to avoid shared mutable state.
 
     Args:
         ensemble_type: The type of ensemble pattern
 
     Returns:
-        The ensemble pattern instance, or None if not found
+        A new ensemble pattern instance, or None if not found
     """
-    return ENSEMBLE_REGISTRY.get(ensemble_type)
+    cls = ENSEMBLE_REGISTRY.get(ensemble_type)
+    return cls() if cls is not None else None
 
 
 def get_all_ensembles() -> Dict[EnsembleType, EnsemblePattern]:

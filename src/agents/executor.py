@@ -460,16 +460,25 @@ class ExecutorAgent:
             )
 
             if result.get("status") == "success" and result.get("output"):
+                # Derive quality score from output length and status;
+                # the Verifier will refine this later.
+                sdk_output = result["output"]
+                sdk_quality = min(1.0, 0.6 + 0.1 * min(4, len(str(sdk_output)) // 500))
                 return ExecutionResult(
                     approach_name=approach.name,
                     status="success",
-                    output=result["output"],
+                    output=sdk_output,
                     files_created=[],
-                    quality_score=0.85,
+                    quality_score=sdk_quality,
                 )
 
-        except (ImportError, Exception):
-            pass
+        except ImportError:
+            pass  # SDK not installed — fall back to local execution
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "SDK execution failed for executor, falling back to local: %s", e
+            )
 
         return None
 

@@ -6,7 +6,7 @@ to appropriate agent configurations.
 """
 
 from enum import IntEnum
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -170,7 +170,7 @@ TIER_3_KEYWORDS = [
     "architecture", "design pattern", "system design",
     "data pipeline", "etl", "data warehouse",
     "machine learning", "ai", "rag", "llm",
-    "security architecture", "security design", "authentication system", "authorization framework",
+    "security", "security architecture", "security design", "authentication system", "authorization framework",
     "migration", "cloud native", "microservices",
     "test strategy", "test automation", "quality assurance",
     "requirements analysis", "gap analysis", "bpmn",
@@ -257,7 +257,9 @@ def classify_complexity(
             f"Contains domain-specific keywords: {', '.join(tier_3_matches[:3])}"
         )
 
-    # Check for Tier 2 indicators (standard tasks)
+    # Check for Tier 2 indicators (standard tasks).
+    # This runs after Tier 3/4 checks intentionally: Tier 2 keywords can only
+    # *raise* a Tier 1 classification to Tier 2, they never downgrade Tier 3/4.
     tier_2_matches = [kw for kw in TIER_2_KEYWORDS if kw in prompt_lower]
     if tier_2_matches and tier_score < 2:
         tier_score = 2
@@ -381,7 +383,7 @@ def estimate_agent_count(tier: TierLevel, sme_count: int = 0) -> int:
     return base_count + sme_count
 
 
-def get_active_agents(tier) -> List[str]:
+def get_active_agents(tier: Union[TierLevel, int]) -> List[str]:
     """
     Get the list of active agents for a tier.
 
@@ -396,16 +398,16 @@ def get_active_agents(tier) -> List[str]:
     return TIER_CONFIG[tier]["active_agents"].copy()
 
 
-def get_council_agents(tier=None) -> List[str]:
+def get_council_agents(tier: Union[TierLevel, int, None] = None) -> List[str]:
     """
     Get the list of Council agents for a tier.
 
     Args:
         tier: The tier level (TierLevel enum or int 1-4).
-              If None, returns all council agents (Tier 4 list).
+              If None, returns the full Tier 4 council list (all council agents).
 
     Returns:
-        List of Council agent names (empty if Council not activated)
+        List of Council agent names (empty if Council not activated for the given tier)
     """
     if tier is None:
         return TIER_CONFIG[TierLevel.ADVERSARIAL].get("council_agents", [])

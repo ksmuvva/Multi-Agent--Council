@@ -509,6 +509,11 @@ def render_chat_interface() -> None:
     if prompt:
         process_user_input(prompt, options)
 
+    # Stream response after rerun (triggered by process_user_input)
+    pending = st.session_state.pop("_pending_stream", None)
+    if pending:
+        _stream_pending_response(pending, options)
+
 
 # =============================================================================
 # Processing
@@ -612,10 +617,25 @@ def process_user_input(prompt: str, options: Dict[str, Any]) -> None:
 
     add_message(user_message)
 
-    # Rerun to show user message, then stream response
+    # Store pending stream info in session state so the response can be
+    # streamed after the rerun (st.rerun() halts execution immediately).
+    st.session_state["_pending_stream"] = {
+        "full_prompt": full_prompt,
+        "tier": tier,
+        "output_format": output_format,
+    }
+
     st.rerun()
 
-    # Use streaming orchestrator when available, fall back to simulation
+
+def _stream_pending_response(pending: Dict[str, Any], options: Dict[str, Any]) -> None:
+    """Stream the orchestrator response for a pending request (called after rerun)."""
+    _subscribe_event_bus()
+
+    full_prompt = pending["full_prompt"]
+    tier = pending["tier"]
+    output_format = pending["output_format"]
+
     try:
         response = render_streaming_response(
             stream_orchestrator_response(full_prompt, tier, options),

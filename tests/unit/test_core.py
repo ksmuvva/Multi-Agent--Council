@@ -160,7 +160,8 @@ class TestEnsemblePatterns:
 
     def test_ensemble_pattern_structure(self):
         """Test that ensemble patterns have required structure."""
-        for name, pattern in ENSEMBLE_REGISTRY.items():
+        for name, pattern_cls in ENSEMBLE_REGISTRY.items():
+            pattern = pattern_cls()
             assert hasattr(pattern, "get_config")
             assert hasattr(pattern, "execute")
 
@@ -172,9 +173,10 @@ class TestEnsemblePatterns:
 
     def test_code_sprint_pattern(self):
         """Test Code Sprint pattern specifically."""
-        pattern = ENSEMBLE_REGISTRY.get("code_sprint")
+        pattern_cls = ENSEMBLE_REGISTRY.get("code_sprint")
 
-        assert pattern is not None
+        assert pattern_cls is not None
+        pattern = pattern_cls()
         config = pattern.get_config()
 
         # Code sprint should include executor and code reviewer
@@ -274,8 +276,8 @@ class TestTierClassificationEdgeCases:
             "error handling, security hardening, and documentation"
         )
 
-        # Should balance simple request with complex requirements
-        assert TierLevel.DIRECT.value <= result.tier.value <= TierLevel.STANDARD.value
+        # "security" triggers Tier 3 since it requires domain expertise
+        assert TierLevel.STANDARD.value <= result.tier.value <= TierLevel.DEEP.value
 
     def test_code_keywords(self):
         """Test that code-related keywords are detected."""

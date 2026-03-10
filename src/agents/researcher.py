@@ -229,8 +229,13 @@ class ResearcherAgent:
                 parsed = self._parse_search_output(output)
                 if parsed:
                     results.extend(parsed)
-        except (ImportError, Exception):
-            pass
+        except ImportError:
+            pass  # SDK not installed — fall back to mock results
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "SDK search failed for researcher, falling back to mock: %s", e
+            )
 
         # Fall back to mock results if SDK didn't return enough
         if len(results) < 2:
@@ -256,18 +261,33 @@ class ResearcherAgent:
         results = []
         try:
             if isinstance(output, str):
-                # Try to extract JSON from the response
-                start = output.find('[')
-                end = output.rfind(']') + 1
-                if start >= 0 and end > start:
+                # Try to parse the entire output as JSON first
+                try:
+                    parsed = json.loads(output)
+                except json.JSONDecodeError:
+                    # Fall back to extracting the first JSON array
+                    start = output.find('[')
+                    end = output.rfind(']') + 1
+                    if start < 0 or end <= start:
+                        return results
                     parsed = json.loads(output[start:end])
-                    for item in parsed:
-                        results.append(SearchResult(
-                            url=item.get("url", ""),
-                            title=item.get("title", ""),
-                            snippet=item.get("snippet", ""),
-                            relevance_score=float(item.get("relevance_score", 0.5)),
-                        ))
+
+                if not isinstance(parsed, list):
+                    return results
+
+                for item in parsed:
+                    if not isinstance(item, dict):
+                        continue
+                    url = item.get("url", "")
+                    # Skip items with empty URLs — they are not useful results
+                    if not url:
+                        continue
+                    results.append(SearchResult(
+                        url=url,
+                        title=item.get("title", ""),
+                        snippet=item.get("snippet", ""),
+                        relevance_score=float(item.get("relevance_score", 0.5)),
+                    ))
         except (json.JSONDecodeError, TypeError, ValueError):
             pass
         return results
@@ -319,8 +339,14 @@ class ResearcherAgent:
 
                 if fetch_result.get("status") == "success" and fetch_result.get("output"):
                     content = str(fetch_result["output"])
-            except (ImportError, Exception):
-                pass
+            except ImportError:
+                pass  # SDK not installed — fall back to mock content
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "SDK fetch failed for URL %s, falling back to mock: %s",
+                    result.url, e,
+                )
 
             # Fall back to mock
             if not content:

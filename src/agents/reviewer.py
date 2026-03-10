@@ -146,10 +146,12 @@ class ReviewerAgent:
             verdict, quality_gates, critical_failures, matrix_action
         )
 
-        # Step 7: Generate revision instructions for non-PASS verdicts
+        # Step 7: Generate revision instructions for actionable non-PASS verdicts
+        # PASS_WITH_CAVEATS is excluded — it is a passing verdict with warnings,
+        # not an actionable revision request.
         revision_instructions = []
         if verdict in (Verdict.FAIL, Verdict.REVISE, Verdict.REJECT,
-                       Verdict.PASS_WITH_CAVEATS, Verdict.ESCALATE):
+                       Verdict.ESCALATE):
             revision_instructions = self._generate_revision_instructions(
                 quality_gates, critical_failures, matrix_action, context
             )

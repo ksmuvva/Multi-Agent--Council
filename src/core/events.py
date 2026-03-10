@@ -59,16 +59,23 @@ class EventBus:
 
         Args:
             event_type: The event type being emitted.
-            data: Event payload dictionary.
+            data: Event payload dictionary (not mutated).
         """
-        data["event_type"] = event_type
-        data["timestamp"] = data.get("timestamp", datetime.now().isoformat())
+        # Copy to avoid mutating the caller's dict
+        data = {
+            **data,
+            "event_type": event_type,
+            "timestamp": data.get("timestamp", datetime.now().isoformat()),
+        }
         for callback in self._subscribers.get(event_type, []):
             try:
                 callback(data)
-            except Exception:
-                # Swallow UI callback errors so they never break the orchestrator
-                pass
+            except Exception as exc:
+                # Log but swallow UI callback errors so they never break the orchestrator
+                import logging
+                logging.getLogger(__name__).debug(
+                    "Event callback %s raised: %s", callback.__name__, exc,
+                )
 
     def clear(self) -> None:
         """Remove all subscribers."""

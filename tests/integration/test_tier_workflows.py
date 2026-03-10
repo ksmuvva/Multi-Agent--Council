@@ -776,71 +776,104 @@ class TestEventBusIntegration:
 # =============================================================================
 
 class TestFiveVerdictWorkflow:
-    """Tests for the 5-verdict system in workflow context."""
+    """Tests for the 5-verdict system using production verdict logic."""
+
+    def _make_context(self, tier=2, revision_count=0, max_revisions=3, is_code=False):
+        """Helper to create ReviewContext for testing."""
+        from src.agents.reviewer import ReviewContext
+        return ReviewContext(
+            original_request="test request",
+            agent_outputs={},
+            revision_count=revision_count,
+            max_revisions=max_revisions,
+            tier_level=tier,
+            is_code_output=is_code,
+        )
 
     def test_pass_verdict_routes_to_formatter(self):
-        """Test PASS verdict routes to formatter."""
+        """Test that PASS verdict is produced when all gates pass."""
         from src.schemas.reviewer import Verdict
+        from src.agents.reviewer import ReviewerAgent
 
-        verdict = Verdict.PASS
-        next_agent = None
+        reviewer = ReviewerAgent()
+        context = self._make_context()
 
-        if verdict == Verdict.PASS:
-            next_agent = "Formatter"
+        result = reviewer.review(
+            output="## Solution\n\nThis is a complete answer addressing the test request.",
+            context=context,
+            verifier_report={"verdict": "PASS", "overall_reliability": 0.9},
+            critic_report={"overall_assessment": "No issues", "attacks": []},
+        )
 
-        assert next_agent == "Formatter"
+        assert result.verdict == Verdict.PASS
 
-    def test_pass_with_caveats_routes_to_formatter_with_warnings(self):
-        """Test PASS_WITH_CAVEATS routes to formatter with warnings."""
+    def test_pass_with_caveats_when_critic_fails(self):
+        """Test PASS_WITH_CAVEATS when verifier passes but critic fails."""
         from src.schemas.reviewer import Verdict
+        from src.agents.reviewer import ReviewerAgent
 
-        verdict = Verdict.PASS_WITH_CAVEATS
-        next_agent = None
-        warnings = []
+        reviewer = ReviewerAgent()
+        context = self._make_context()
 
-        if verdict == Verdict.PASS_WITH_CAVEATS:
-            next_agent = "Formatter"
-            warnings.append("Output accepted with caveats - review recommended")
+        result = reviewer.review(
+            output="## Solution\n\nThis is a complete answer addressing the test request.",
+            context=context,
+            verifier_report={"verdict": "PASS", "overall_reliability": 0.9},
+            critic_report={"overall_assessment": "critical issues found", "attacks": [{"verdict": "FAIL"}]},
+        )
 
-        assert next_agent == "Formatter"
-        assert len(warnings) > 0
+        assert result.verdict == Verdict.PASS_WITH_CAVEATS
 
-    def test_revise_verdict_triggers_re_execution(self):
-        """Test REVISE verdict triggers re-execution."""
+    def test_revise_verdict_when_verifier_fails(self):
+        """Test REVISE when verifier fails but critic passes."""
         from src.schemas.reviewer import Verdict
+        from src.agents.reviewer import ReviewerAgent
 
-        verdict = Verdict.REVISE
-        next_agent = None
+        reviewer = ReviewerAgent()
+        context = self._make_context()
 
-        if verdict == Verdict.REVISE:
-            next_agent = "Executor"
+        result = reviewer.review(
+            output="## Solution\n\nThis is a complete answer addressing the test request.",
+            context=context,
+            verifier_report={"verdict": "FAIL", "overall_reliability": 0.3},
+            critic_report={"overall_assessment": "No issues", "attacks": []},
+        )
 
-        assert next_agent == "Executor"
+        assert result.verdict == Verdict.REVISE
 
-    def test_reject_verdict_stops_pipeline(self):
-        """Test REJECT verdict stops pipeline."""
+    def test_reject_verdict_on_critical_security(self):
+        """Test REJECT on critical security issues."""
         from src.schemas.reviewer import Verdict
+        from src.agents.reviewer import ReviewerAgent
 
-        verdict = Verdict.REJECT
-        pipeline_stopped = False
+        reviewer = ReviewerAgent()
+        context = self._make_context()
 
-        if verdict == Verdict.REJECT:
-            pipeline_stopped = True
+        result = reviewer.review(
+            output='api_key = "sk-secret123" # hardcoded password for testing',
+            context=context,
+            verifier_report={"verdict": "FAIL", "overall_reliability": 0.3},
+            critic_report={"overall_assessment": "critical security issues", "attacks": [{"verdict": "FAIL"}]},
+        )
 
-        assert pipeline_stopped is True
+        assert result.verdict == Verdict.REJECT
 
-    def test_escalate_verdict_triggers_council_arbitration_tier4(self):
-        """Test ESCALATE verdict triggers council arbitration in Tier 4."""
+    def test_escalate_verdict_tier4_disagreement(self):
+        """Test ESCALATE on Tier 4 verifier/critic disagreement."""
         from src.schemas.reviewer import Verdict
+        from src.agents.reviewer import ReviewerAgent
 
-        verdict = Verdict.ESCALATE
-        tier = 4
-        council_arbitration = False
+        reviewer = ReviewerAgent()
+        context = self._make_context(tier=4)
 
-        if verdict == Verdict.ESCALATE and tier == 4:
-            council_arbitration = True
+        result = reviewer.review(
+            output="## Solution\n\nThis is a complete answer addressing the test request.",
+            context=context,
+            verifier_report={"verdict": "FAIL", "overall_reliability": 0.4},
+            critic_report={"overall_assessment": "No issues", "attacks": []},
+        )
 
-        assert council_arbitration is True
+        assert result.verdict == Verdict.ESCALATE
 
 
 # =============================================================================
@@ -1015,31 +1048,34 @@ class TestDocumentGenerationWorkflow:
 # =============================================================================
 
 class TestStreamingWorkflow:
-    """Tests for streaming chat."""
+    """Tests for streaming chat using production stream_orchestrator_response."""
 
     def test_streaming_generator_yields_chunks(self):
-        """Test that streaming generator yields chunks."""
-        def mock_stream():
-            """Simulate a streaming generator."""
-            yield "Processing "
-            yield "your "
-            yield "request..."
+        """Test that stream_orchestrator_response yields string chunks."""
+        from unittest.mock import patch, MagicMock
 
-        chunks = list(mock_stream())
-        assert len(chunks) == 3
-        assert "".join(chunks) == "Processing your request..."
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.execute.return_value = {
+            "formatted_output": "Hello world response",
+            "metadata": {"total_cost_usd": 0.01, "duration_seconds": 1.0, "agents_used": ["Executor"]},
+        }
 
-    def test_streaming_handles_string_and_dict_chunks(self):
-        """Test that streaming handles both string and dict chunks."""
-        def mock_mixed_stream():
-            """Simulate a streaming generator with mixed types."""
-            yield "Starting..."
-            yield {"status": "in_progress", "agent": "Analyst"}
-            yield "Complete."
+        with patch("src.ui.pages.chat.create_orchestrator", return_value=mock_orchestrator):
+            from src.ui.pages.chat import stream_orchestrator_response
 
-        chunks = list(mock_mixed_stream())
-        assert len(chunks) == 3
-        assert isinstance(chunks[0], str)
-        assert isinstance(chunks[1], dict)
-        assert chunks[1]["agent"] == "Analyst"
-        assert isinstance(chunks[2], str)
+            chunks = list(stream_orchestrator_response("test prompt", 1, {"budget": 10.0}))
+
+        full_text = "".join(chunks)
+        assert "Hello world response" in full_text
+
+    def test_streaming_handles_import_error_gracefully(self):
+        """Test that streaming falls back to mock when orchestrator unavailable."""
+        from unittest.mock import patch
+
+        with patch.dict("sys.modules", {"src.agents.orchestrator": None}):
+            from src.ui.pages.chat import stream_orchestrator_response
+
+            chunks = list(stream_orchestrator_response("test prompt", 1, {"budget": 10.0}))
+
+        # Should produce some output even on error
+        assert len(chunks) >= 1
