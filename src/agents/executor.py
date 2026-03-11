@@ -566,15 +566,15 @@ Based on the analysis, the following recommendations are made.
 
         if "python" in task_lower or ".py" in task_lower:
             return "output/solution.py"
-        elif "javascript" in task_lower or "js" in task_lower or "node" in task_lower:
+        elif "javascript" in task_lower or ".js" in task_lower or "node" in task_lower:
             return "output/solution.js"
-        elif "typescript" in task_lower or "ts" in task_lower:
+        elif "typescript" in task_lower or ".ts" in task_lower:
             return "output/solution.ts"
         elif "java" in task_lower:
             return "output/Solution.java"
-        elif "go" in task_lower:
+        elif " go " in task_lower or task_lower.endswith(" go") or "golang" in task_lower:
             return "output/solution.go"
-        elif "rust" in task_lower or "rs" in task_lower:
+        elif "rust" in task_lower or ".rs" in task_lower:
             return "output/solution.rs"
         else:
             return None
