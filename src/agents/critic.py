@@ -308,12 +308,15 @@ class CriticAgent:
         # Check for direct contradictions
         contradiction_patterns = [
             (r'always.*never', "Claims 'always' and 'never' for same thing"),
+            (r'never.*always', "Claims 'never' and 'always' for same thing"),
             (r'all\s+.*\s+none', "Claims 'all' and 'none' together"),
+            (r'none\s+.*\s+all', "Claims 'none' and 'all' together"),
             (r'impossible.*possible', "Logical impossibility"),
+            (r'possible.*impossible', "Logical impossibility"),
         ]
 
         for pattern, description in contradiction_patterns:
-            if re.search(pattern, solution_lower):
+            if re.search(pattern, solution_lower, re.DOTALL):
                 internal_contradictions.append(description)
 
         # Check for external contradictions with common knowledge
