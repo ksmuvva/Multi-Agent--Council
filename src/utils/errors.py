@@ -465,7 +465,7 @@ def get_circuit_breaker(
     """
     if name not in _circuit_breakers:
         _circuit_breakers[name] = CircuitBreaker(name, config)
-    return _circuit_breakers]
+    return _circuit_breakers[name]
 
 
 # Global degradation manager

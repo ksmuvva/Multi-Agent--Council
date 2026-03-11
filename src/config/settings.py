@@ -56,6 +56,7 @@ class LLMProvider(str, Enum):
     MISTRAL = "mistral"
     COHERE = "cohere"
     TOGETHER = "together"
+    GLM = "glm"  # Zhipu AI GLM models (ChatGLM/GLM-4)
     CUSTOM = "custom"  # For OpenAI-compatible endpoints
 
 
@@ -216,6 +217,26 @@ DEFAULT_MODEL_MAPPINGS: Dict[LLMProvider, ModelMapping] = {
             "sme": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
         },
     ),
+    LLMProvider.GLM: ModelMapping(
+        provider=LLMProvider.GLM,
+        models={
+            "default": "glm-4-plus",
+            "orchestrator": "glm-4-plus",
+            "council": "glm-4-plus",
+            "analyst": "glm-4-plus",
+            "planner": "glm-4-plus",
+            "clarifier": "glm-4-flash",
+            "researcher": "glm-4-plus",
+            "executor": "glm-4-plus",
+            "code_reviewer": "glm-4-plus",
+            "verifier": "glm-4-plus",
+            "critic": "glm-4-plus",
+            "reviewer": "glm-4-plus",
+            "formatter": "glm-4-flash",
+            "memory_curator": "glm-4-flash",
+            "sme": "glm-4-plus",
+        },
+    ),
     LLMProvider.CUSTOM: ModelMapping(
         provider=LLMProvider.CUSTOM,
         models={
@@ -325,6 +346,12 @@ class Settings(BaseSettings):
     together_base_url: Optional[str] = None
 
     # =========================================================================
+    # GLM (Zhipu AI) Configuration
+    # =========================================================================
+    glm_api_key: Optional[str] = None
+    glm_base_url: Optional[str] = None  # Default: https://open.bigmodel.cn/api/paas/v4
+
+    # =========================================================================
     # Custom/OpenAI-Compatible Configuration
     # =========================================================================
     custom_api_key: Optional[str] = None
@@ -429,6 +456,7 @@ class Settings(BaseSettings):
             LLMProvider.MISTRAL: ("mistral_api_key", "MISTRAL_API_KEY"),
             LLMProvider.COHERE: ("cohere_api_key", "COHERE_API_KEY"),
             LLMProvider.TOGETHER: ("together_api_key", "TOGETHER_API_KEY"),
+            LLMProvider.GLM: ("glm_api_key", "GLM_API_KEY"),
             LLMProvider.CUSTOM: ("custom_api_key", "CUSTOM_API_KEY"),
         }
 
@@ -465,6 +493,7 @@ class Settings(BaseSettings):
             LLMProvider.MISTRAL: "mistral_base_url",
             LLMProvider.COHERE: "cohere_base_url",
             LLMProvider.TOGETHER: "together_base_url",
+            LLMProvider.GLM: "glm_base_url",
             LLMProvider.CUSTOM: "custom_base_url",
         }
 

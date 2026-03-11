@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict
 
-from .logging import get_logger, bind_session
+from src.utils.logging import get_logger, bind_session
 from .persistence import SessionState, ChatMessage, AgentOutput
 
 
@@ -26,6 +26,7 @@ class CompactionTrigger(str, Enum):
     MESSAGE_COUNT = "message_count"  # Message count threshold
     SESSION_AGE = "session_age"  # Session age threshold
     MANUAL = "manual"  # User requested
+    AUTO = "auto"  # Automatic compaction
 
 
 @dataclass

@@ -13,7 +13,7 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field, asdict
 from threading import Lock
 
-from .logging import get_logger
+from src.utils.logging import get_logger
 
 
 # =============================================================================

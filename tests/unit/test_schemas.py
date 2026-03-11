@@ -495,7 +495,7 @@ class TestSchemaSerialization:
 
         assert data["factual_accuracy_score"] == 0.8
         assert "claims" in data
-        assert data["claims"][0"]["verification"] == "verified"
+        assert data["claims"][0]["verification"] == "verified"
 
 
 # =============================================================================

@@ -265,13 +265,6 @@ def console_formatter() -> Processor:
     return structlog.dev.ConsoleRenderer(
         colors=True,
         exception_formatter=structlog.dev.plain_traceback,
-        level_styles={
-            "debug": structlog.dev.BoldBlue,
-            "info": structlog.dev.BoldCyan,
-            "warning": structlog.dev.BoldYellow,
-            "error": structlog.dev.BoldRed,
-            "critical": structlog.dev.BoldRed,
-        },
     )
 
 
