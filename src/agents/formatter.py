@@ -5,6 +5,7 @@ Presents raw output in requested formats: Markdown, code files,
 DOCX, PDF, XLSX, PPTX, Mermaid diagrams, JSON, YAML.
 """
 
+import ast
 import re
 import json
 import os
@@ -470,19 +471,9 @@ graph LR
                 return ext_map[ext]
 
         # Detect from code content
-        code_lower = code.lower()
+        # Order matters: check more specific patterns before generic ones
 
-        # Python
-        if "def " in code or "import " in code or "from " in code or "class " in code:
-            return "python"
-
-        # JavaScript/TypeScript
-        if "function " in code or "const " in code or "let " in code:
-            if ": " in code and "interface " in code:
-                return "typescript"
-            return "javascript"
-
-        # Java
+        # Java (check before Python since "class " also matches Java)
         if "public class " in code or "public static void main" in code:
             return "java"
 
@@ -490,13 +481,23 @@ graph LR
         if "func " in code and "package main" in code:
             return "go"
 
+        # C++
+        if "#include <" in code and "std::" in code:
+            return "cpp"
+
         # C
         if "#include <" in code and "int main(" in code:
             return "c"
 
-        # C++
-        if "#include <" in code and "std::" in code:
-            return "cpp"
+        # JavaScript/TypeScript
+        if "function " in code or "const " in code or "let " in code:
+            if ": " in code and "interface " in code:
+                return "typescript"
+            return "javascript"
+
+        # Python
+        if "def " in code or "import " in code or "from " in code or "class " in code:
+            return "python"
 
         # Default
         return "python"
