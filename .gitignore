@@ -154,12 +154,18 @@ sessions/
 outputs/
 temp/
 
+# Binary documents (store externally)
+*.docx
+
+# Claude local settings
+.claude/settings.local.json
+
 # Streamlit
 .streamlit/
 
 # Knowledge base (may contain sensitive info)
 docs/knowledge/*.md
-!docs/knowledge/.gitkeep
+!docs/knowledge/README.md
 
 # Session data
 .sessions/
