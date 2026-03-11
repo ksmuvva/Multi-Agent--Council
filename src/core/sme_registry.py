@@ -6,7 +6,7 @@ including trigger keywords, skills to load, and interaction modes.
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 from enum import Enum
 
 
@@ -396,7 +396,7 @@ def validate_interaction_mode(
     return interaction_mode in persona.interaction_modes
 
 
-def get_persona_for_display(persona_id: str) -> Optional[Dict[str, any]]:
+def get_persona_for_display(persona_id: str) -> Optional[Dict[str, Any]]:
     """
     Get persona information formatted for display in UI.
 
@@ -426,7 +426,7 @@ def get_persona_for_display(persona_id: str) -> Optional[Dict[str, any]]:
 # Registry Statistics
 # =============================================================================
 
-def get_registry_stats() -> Dict[str, any]:
+def get_registry_stats() -> Dict[str, Any]:
     """Get statistics about the SME registry."""
     return {
         "total_personas": len(SME_REGISTRY),

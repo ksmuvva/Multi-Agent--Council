@@ -639,7 +639,7 @@ class SMESpawner:
                 {"title": "CI/CD Pipeline", "type": "implementation"},
                 {"title": "Monitoring & Observability", "type": "operations"},
             ]
-        elif "technical_writer" in domain_lower:
+        elif "documentation" in domain_lower or "technical writ" in domain_lower:
             sections = [
                 {"title": "Documentation", "type": "documentation"},
                 {"title": "Usage Guide", "type": "guide"},

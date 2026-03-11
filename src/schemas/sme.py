@@ -4,7 +4,7 @@ SME (Subject Matter Expert) Persona Schemas
 Pydantic v2 models for SME persona interactions.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
@@ -23,15 +23,15 @@ class AdvisorReport(BaseModel):
     domain_corrections: List[str] = Field(
         ...,
         description="Domain-specific corrections"
-    ),
+    )
     missing_considerations: List[str] = Field(
         ...,
         description="Important domain factors that were missed"
-    ),
+    )
     recommendations: List[str] = Field(
         ...,
         description="Domain-specific recommendations"
-    ),
+    )
     confidence: float = Field(
         ...,
         ge=0.0,
@@ -58,11 +58,11 @@ class CoExecutorReport(BaseModel):
     contributed_sections: List[CoExecutorSection] = Field(
         ...,
         description="Sections contributed by this SME"
-    ),
+    )
     coordination_notes: str = Field(
         ...,
         description="How this SME coordinated with Executor"
-    ),
+    )
     domain_assumptions: List[str] = Field(
         ...,
         description="Domain-specific assumptions made"
@@ -76,11 +76,11 @@ class DebatePosition(BaseModel):
     domain_rationale: str = Field(
         ...,
         description="Domain-specific reasoning for this position"
-    ),
+    )
     supporting_evidence: List[str] = Field(
         ...,
         description="Domain evidence supporting this position"
-    ),
+    )
     confidence: float = Field(
         ...,
         ge=0.0,
@@ -97,11 +97,11 @@ class DebaterReport(BaseModel):
     counter_arguments_addressed: List[str] = Field(
         ...,
         description="Counter-arguments this SME addressed"
-    ),
+    )
     remaining_concerns: List[str] = Field(
         ...,
         description="Concerns this SME still has"
-    ),
+    )
     willingness_to_concede: float = Field(
         ...,
         ge=0.0,
@@ -120,50 +120,50 @@ class SMEAdvisoryReport(BaseModel):
     interaction_mode: SMEInteractionMode = Field(
         ...,
         description="How this SME interacted"
-    ),
+    )
     domain: str = Field(..., description="Domain of expertise")
     task_context: str = Field(..., description="Context of the task")
     findings: List[str] = Field(
         ...,
         description="Domain-specific findings"
-    ),
+    )
     recommendations: List[str] = Field(
         ...,
         description="Domain-specific recommendations"
-    ),
+    )
     confidence: float = Field(
         ...,
         ge=0.0,
         le=1.0,
         description="Overall confidence in this advisory (0-1)"
-    ),
+    )
     caveats: List[str] = Field(
         default_factory=list,
         description="Caveats and limitations"
-    ),
+    )
     advisor_report: Optional[AdvisorReport] = Field(
         None,
         description="Report if in advisor mode"
-    ),
+    )
     co_executor_report: Optional[CoExecutorReport] = Field(
         None,
         description="Report if in co-executor mode"
-    ),
+    )
     debater_report: Optional[DebaterReport] = Field(
         None,
         description="Report if in debater mode"
-    ),
+    )
     skills_used: List[str] = Field(
         ...,
         description="SKILL.md files loaded by this SME"
-    ),
+    )
     additional_domains_consulted: List[str] = Field(
         default_factory=list,
         description="Other domains this SME consulted"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "sme_persona": "Security Analyst",
                 "interaction_mode": "advisor",
@@ -202,3 +202,4 @@ class SMEAdvisoryReport(BaseModel):
                 "additional_domains_consulted": []
             }
         }
+    )
