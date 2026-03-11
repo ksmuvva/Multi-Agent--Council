@@ -314,7 +314,7 @@ def should_escalate(
         "domain expertise required",
         "need specialist",
         "outside scope",
-        "requires SME",
+        "requires sme",
         "uncertain",
         "need verification"
     ]
