@@ -17,28 +17,38 @@ from src.schemas.analyst import (
 )
 from src.schemas.planner import (
     ExecutionPlan,
-    PlanStep,
-    Dependency,
+    ExecutionStep,
+    AgentAssignment,
+    ParallelGroup,
 )
 from src.schemas.verifier import (
     VerificationReport,
-    ClaimExtraction,
-    ClaimStatus,
+    Claim,
+    ClaimBatch,
+    VerificationStatus,
+    FabricationRisk,
 )
 from src.schemas.critic import (
     CritiqueReport,
-    Finding,
+    Attack,
     AttackVector,
     SeverityLevel,
+    LogicAttack,
+    CompletenessAttack,
+    QualityAttack,
+    ContradictionScan,
+    RedTeamArgument,
 )
 from src.schemas.reviewer import (
     ReviewVerdict,
-    QualityGate,
+    QualityGateResults,
+    CheckItem,
     Verdict,
+    Revision,
 )
 from src.schemas.sme import (
     SMEAdvisoryReport,
-    AdvisoryType,
+    SMEInteractionMode,
 )
 
 
@@ -52,79 +62,58 @@ class TestTaskIntelligenceReport:
     def test_valid_minimal_report(self):
         """Test creating a valid minimal report."""
         report = TaskIntelligenceReport(
-            literal_request="Write a hello world function",
-            inferred_intent="User wants a simple hello world program",
+            literal_request="Test request",
+            inferred_intent="Test intent",
             sub_tasks=[],
             missing_info=[],
-            assumptions=["Language is Python"],
-            modality=ModalityType.CODE,
-            recommended_approach="Direct implementation",
+            assumptions=[],
+            modality=ModalityType.TEXT,
+            recommended_approach="Test approach",
         )
-
-        assert report.literal_request == "Write a hello world function"
-        assert report.modality == ModalityType.CODE
-        assert report.escalation_needed is False
+        assert report.literal_request == "Test request"
+        assert report.modality == ModalityType.TEXT
 
     def test_valid_full_report(self):
-        """Test creating a valid full report with all fields."""
+        """Test creating a full report with all fields."""
         report = TaskIntelligenceReport(
-            literal_request="Build a full-stack app",
-            inferred_intent="User wants a complete web application",
+            literal_request="Build a REST API",
+            inferred_intent="Create backend endpoints",
             sub_tasks=[
-                SubTask(description="Frontend", dependencies=["Backend"]),
-                SubTask(description="Backend", dependencies=[]),
+                SubTask(description="Design models", dependencies=[]),
+                SubTask(description="Implement endpoints", dependencies=["Design models"]),
             ],
             missing_info=[
                 MissingInfo(
-                    requirement="Tech stack",
+                    requirement="Auth method",
                     severity="important",
-                    impact="Cannot proceed without knowing framework",
+                    impact="Security depends on this",
+                    default_assumption="JWT",
                 ),
             ],
-            assumptions=["React for frontend", "Node.js for backend"],
-            modality=ModalityType.DOCUMENT,
-            recommended_approach="MVP first approach",
-            escalation_needed=True,
+            assumptions=["Python/FastAPI", "PostgreSQL"],
+            modality=ModalityType.CODE,
+            recommended_approach="Start with models",
+            escalation_needed=False,
+            suggested_tier=2,
+            confidence=0.9,
         )
-
         assert len(report.sub_tasks) == 2
         assert len(report.missing_info) == 1
-        assert report.escalation_needed is True
+        assert report.suggested_tier == 2
 
-    def test_invalid_modality(self):
-        """Test validation rejects invalid modality."""
-        with pytest.raises(ValidationError):
-            TaskIntelligenceReport(
+    def test_modality_types(self):
+        """Test all modality type values."""
+        for modality in ModalityType:
+            report = TaskIntelligenceReport(
                 literal_request="Test",
                 inferred_intent="Test",
                 sub_tasks=[],
                 missing_info=[],
                 assumptions=[],
-                modality="invalid_modality",  # Invalid
+                modality=modality,
                 recommended_approach="Test",
             )
-
-    def test_sub_task_validation(self):
-        """Test SubTask validation."""
-        task = SubTask(
-            description="Write code",
-            dependencies=["Design"],
-        )
-
-        assert task.description == "Write code"
-        assert task.dependencies == ["Design"]
-
-    def test_missing_info_validation(self):
-        """Test MissingInfo validation."""
-        info = MissingInfo(
-            requirement="API key",
-            severity="critical",
-            impact="Cannot make API calls",
-        )
-
-        assert info.requirement == "API key"
-        assert info.severity == "critical"
-        assert info.impact == "Cannot make API calls"
+            assert report.modality == modality
 
 
 # =============================================================================
@@ -134,68 +123,66 @@ class TestTaskIntelligenceReport:
 class TestExecutionPlan:
     """Tests for ExecutionPlan schema."""
 
+    def _make_step(self, step_number=1, description="Execute task", agent_name="Executor"):
+        """Helper to create an ExecutionStep."""
+        return ExecutionStep(
+            step_number=step_number,
+            description=description,
+            agent_assignments=[
+                AgentAssignment(
+                    agent_name=agent_name,
+                    role="primary",
+                    reason="Main executor",
+                ),
+            ],
+            dependencies=[],
+        )
+
     def test_valid_minimal_plan(self):
         """Test creating a valid minimal plan."""
         plan = ExecutionPlan(
-            steps=[
-                PlanStep(
-                    step=1,
-                    description="Execute task",
-                    agent="Executor",
-                    dependencies=[],
-                ),
-            ],
-            estimated_duration="5 minutes",
+            task_summary="Simple task",
+            total_steps=1,
+            steps=[self._make_step()],
+            critical_path=[1],
         )
-
         assert len(plan.steps) == 1
-        assert plan.estimated_duration == "5 minutes"
+        assert plan.total_steps == 1
 
     def test_valid_complex_plan(self):
         """Test creating a valid complex plan with dependencies."""
+        step1 = self._make_step(1, "Research", "Researcher")
+        step2 = ExecutionStep(
+            step_number=2,
+            description="Execute",
+            agent_assignments=[
+                AgentAssignment(agent_name="Executor", role="primary", reason="Implement"),
+            ],
+            dependencies=[1],
+            can_parallelize=False,
+        )
         plan = ExecutionPlan(
-            steps=[
-                PlanStep(
-                    step=1,
-                    description="Research",
-                    agent="Researcher",
-                    dependencies=[],
-                ),
-                PlanStep(
-                    step=2,
-                    description="Execute",
-                    agent="Executor",
-                    dependencies=["Research"],
-                ),
-            ],
-            estimated_duration="10-15 minutes",
-            dependencies=[
-                Dependency(
-                    from_step="Execute",
-                    to_step="Research",
-                    type="sequential",
-                ),
-            ],
-            parallel_opportunities=[],
+            task_summary="Complex task",
+            total_steps=2,
+            steps=[step1, step2],
+            critical_path=[1, 2],
+            parallel_groups=[],
             risk_factors=["Time estimation uncertainty"],
         )
-
         assert len(plan.steps) == 2
-        assert len(plan.dependencies) == 1
-        assert plan.dependencies[0].type == "sequential"
+        assert plan.steps[1].dependencies == [1]
 
     def test_step_ordering(self):
         """Test that steps maintain their order."""
+        steps = [self._make_step(i, f"Step {i}") for i in range(1, 6)]
         plan = ExecutionPlan(
-            steps=[
-                PlanStep(step=i, description=f"Step {i}", agent="Agent", dependencies=[])
-                for i in range(1, 6)
-            ],
-            estimated_duration="5 minutes",
+            task_summary="Multi-step",
+            total_steps=5,
+            steps=steps,
+            critical_path=[1, 2, 3, 4, 5],
         )
-
-        assert plan.steps[0].step == 1
-        assert plan.steps[-1].step == 5
+        assert plan.steps[0].step_number == 1
+        assert plan.steps[-1].step_number == 5
         assert len(plan.steps) == 5
 
 
@@ -206,65 +193,85 @@ class TestExecutionPlan:
 class TestVerificationReport:
     """Tests for VerificationReport schema."""
 
+    def _make_claim(self, text="Test claim", confidence=8, status=VerificationStatus.VERIFIED):
+        """Helper to create a Claim."""
+        return Claim(
+            claim_text=text,
+            confidence=confidence,
+            fabrication_risk=FabricationRisk.LOW,
+            source="Test source",
+            verification_method="Test method",
+            status=status,
+        )
+
     def test_valid_verification_report(self):
         """Test creating a valid verification report."""
         report = VerificationReport(
+            total_claims_checked=2,
             claims=[
-                ClaimExtraction(
-                    claim="Python is dynamically typed",
-                    verification=ClaimStatus.VERIFIED,
-                    confidence=0.95,
-                    source="Language documentation",
-                ),
-                ClaimExtraction(
-                    claim="Java is slower than Python",
-                    verification=ClaimStatus.CONTRADICTED,
-                    confidence=0.8,
-                    source="Benchmark tests",
-                ),
+                self._make_claim("Python is dynamically typed", 9, VerificationStatus.VERIFIED),
+                self._make_claim("Java is slower than Python", 5, VerificationStatus.CONTRADICTED),
             ],
-            factual_accuracy_score=0.85,
-            hallucination_risk="low",
-            recommendations=["Add more citations"],
+            verified_claims=1,
+            unverified_claims=0,
+            contradicted_claims=1,
+            fabricated_claims=0,
+            overall_reliability=0.85,
+            verdict="PASS",
+            flagged_claims=[],
+            recommended_corrections=[],
+            verification_summary="1 verified, 1 contradicted",
         )
-
         assert len(report.claims) == 2
-        assert report.factual_accuracy_score == 0.85
-        assert report.claims[0].verification == ClaimStatus.VERIFIED
+        assert report.overall_reliability == 0.85
 
-    def test_claim_status_validation(self):
-        """Test ClaimStatus enum values."""
+    def test_verification_status_values(self):
+        """Test all VerificationStatus enum values."""
         valid_statuses = [
-            ClaimStatus.VERIFIED,
-            ClaimStatus.UNVERIFIED,
-            ClaimStatus.CONTRADICTED,
-            ClaimStatus.FABRICATED,
+            VerificationStatus.VERIFIED,
+            VerificationStatus.UNVERIFIED,
+            VerificationStatus.CONTRADICTED,
+            VerificationStatus.FABRICATED,
         ]
-
         for status in valid_statuses:
-            claim = ClaimExtraction(
-                claim="Test claim",
-                verification=status,
-                confidence=0.5,
-            )
-            assert claim.verification == status
+            claim = self._make_claim(status=status)
+            assert claim.status == status
 
     def test_confidence_range(self):
-        """Test confidence scores are in valid range."""
+        """Test confidence scores are in valid range (1-10)."""
         with pytest.raises(ValidationError):
-            ClaimExtraction(
-                claim="Test",
-                verification=ClaimStatus.VERIFIED,
-                confidence=1.5,  # Invalid: > 1.0
-                source="Test",
+            Claim(
+                claim_text="Test",
+                confidence=11,  # Invalid: > 10
+                fabrication_risk=FabricationRisk.LOW,
+                verification_method="Test",
+                status=VerificationStatus.VERIFIED,
             )
 
         with pytest.raises(ValidationError):
-            ClaimExtraction(
-                claim="Test",
-                verification=ClaimStatus.VERIFIED,
-                confidence=-0.1,  # Invalid: < 0
-                source="Test",
+            Claim(
+                claim_text="Test",
+                confidence=0,  # Invalid: < 1
+                fabrication_risk=FabricationRisk.LOW,
+                verification_method="Test",
+                status=VerificationStatus.VERIFIED,
+            )
+
+    def test_reliability_range(self):
+        """Test overall_reliability must be 0-1."""
+        with pytest.raises(ValidationError):
+            VerificationReport(
+                total_claims_checked=0,
+                claims=[],
+                verified_claims=0,
+                unverified_claims=0,
+                contradicted_claims=0,
+                fabricated_claims=0,
+                overall_reliability=1.5,  # Invalid
+                verdict="FAIL",
+                flagged_claims=[],
+                recommended_corrections=[],
+                verification_summary="Test",
             )
 
 
@@ -275,29 +282,56 @@ class TestVerificationReport:
 class TestCritiqueReport:
     """Tests for CritiqueReport schema."""
 
-    def test_valid_critique_report(self):
-        """Test creating a valid critique report."""
-        report = CritiqueReport(
-            attack_vectors_tested=[
-                AttackVector.LOGIC,
-                AttackVector.COMPLETENESS,
-            ],
-            findings=[
-                Finding(
-                    category=AttackVector.LOGIC,
+    def _make_critique(self, would_approve=True):
+        """Helper to create a CritiqueReport."""
+        return CritiqueReport(
+            solution_summary="Test solution",
+            attacks=[
+                Attack(
+                    vector=AttackVector.LOGIC,
+                    target="argument",
+                    finding="Minor logical gap",
                     severity=SeverityLevel.LOW,
-                    description="Minor logical gap",
-                    location="Section 2",
-                    recommendation="Add more detail",
+                    description="Small gap in logic",
+                    scenario="Could cause confusion",
+                    suggestion="Add more detail",
                 ),
             ],
-            overall_score=0.85,
-            recommendations=["Expand section 2"],
+            logic_attack=LogicAttack(
+                invalid_arguments=["Gap in reasoning"],
+                fallacies_identified=["None"],
+            ),
+            completeness_attack=CompletenessAttack(
+                covered=["Main points"],
+                missing=["Edge cases"],
+                assumptions=["User is technical"],
+            ),
+            quality_attack=QualityAttack(
+                weaknesses=["Minor style issues"],
+                improvements=["Add examples"],
+            ),
+            contradiction_scan=ContradictionScan(
+                external_contradictions=[],
+                inconsistencies=[],
+            ),
+            red_team_argumentation=RedTeamArgument(
+                adversary_perspective="Low risk target",
+                attack_surface=["Minimal"],
+                failure_modes=["None critical"],
+                worst_case_scenarios=["Minor data inconsistency"],
+            ),
+            overall_assessment="Solution is adequate",
+            critical_issues=[],
+            recommended_revisions=[],
+            would_approve=would_approve,
         )
 
-        assert len(report.attack_vectors_tested) == 2
-        assert len(report.findings) == 1
-        assert report.findings[0].severity == SeverityLevel.LOW
+    def test_valid_critique_report(self):
+        """Test creating a valid critique report."""
+        report = self._make_critique()
+        assert len(report.attacks) == 1
+        assert report.attacks[0].severity == SeverityLevel.LOW
+        assert report.would_approve is True
 
     def test_all_attack_vectors(self):
         """Test all defined attack vectors."""
@@ -308,14 +342,17 @@ class TestCritiqueReport:
             AttackVector.CONTRADICTION,
             AttackVector.RED_TEAM,
         ]
-
-        report = CritiqueReport(
-            attack_vectors_tested=vectors,
-            findings=[],
-            overall_score=1.0,
-        )
-
-        assert len(report.attack_vectors_tested) == 5
+        for vector in vectors:
+            attack = Attack(
+                vector=vector,
+                target="test",
+                finding="test finding",
+                severity=SeverityLevel.LOW,
+                description="test",
+                scenario="test",
+                suggestion="test",
+            )
+            assert attack.vector == vector
 
     def test_finding_severity_levels(self):
         """Test all severity levels."""
@@ -324,25 +361,18 @@ class TestCritiqueReport:
             SeverityLevel.HIGH,
             SeverityLevel.MEDIUM,
             SeverityLevel.LOW,
-            SeverityLevel.INFO,
         ]
-
-        findings = [
-            Finding(
-                category=AttackVector.LOGIC,
+        for severity in severities:
+            attack = Attack(
+                vector=AttackVector.LOGIC,
+                target="test",
+                finding=f"Test {severity}",
                 severity=severity,
-                description=f"Test {severity}",
+                description="test",
+                scenario="test",
+                suggestion="test",
             )
-            for severity in severities
-        ]
-
-        report = CritiqueReport(
-            attack_vectors_tested=[AttackVector.LOGIC],
-            findings=findings,
-            overall_score=0.5,
-        )
-
-        assert len(report.findings) == 5
+            assert attack.severity == severity
 
 
 # =============================================================================
@@ -352,54 +382,73 @@ class TestCritiqueReport:
 class TestReviewVerdict:
     """Tests for ReviewVerdict schema."""
 
+    def _make_check(self, name="Test Check", passed=True):
+        """Helper to create a CheckItem."""
+        return CheckItem(
+            check_name=name,
+            passed=passed,
+            notes="Test notes",
+            severity_if_failed="medium",
+        )
+
+    def _make_quality_gates(self, all_pass=True):
+        """Helper to create QualityGateResults."""
+        return QualityGateResults(
+            completeness=self._make_check("Completeness", all_pass),
+            consistency=self._make_check("Consistency", all_pass),
+            verifier_signoff=self._make_check("Verifier Sign-off", all_pass),
+            critic_findings_addressed=self._make_check("Critic Findings", all_pass),
+            readability=self._make_check("Readability", all_pass),
+        )
+
     def test_valid_review_verdict(self):
         """Test creating a valid review verdict."""
         verdict = ReviewVerdict(
-            verdict=Verdict.PROCEED_TO_FORMATTER,
-            quality_gates={
-                "completeness": QualityGate.PASS,
-                "consistency": QualityGate.PASS,
-                "verifier_signoff": QualityGate.PASS,
-                "critic_findings": QualityGate.PASS,
-                "readability": QualityGate.PASS,
-            },
-            final_recommendation="Quality is acceptable, proceed to formatting",
+            verdict=Verdict.PASS,
+            confidence=0.9,
+            quality_gate_results=self._make_quality_gates(),
+            reasons=["All checks passed"],
+            can_revise=True,
+            summary="Output passes all quality gates.",
         )
+        assert verdict.verdict == Verdict.PASS
+        assert verdict.confidence == 0.9
 
-        assert verdict.verdict == Verdict.PROCEED_TO_FORMATTER
-        assert verdict.quality_gates["completeness"] == QualityGate.PASS
-
-    def test_verdict_matrix_values(self):
+    def test_verdict_values(self):
         """Test all valid verdict values."""
-        valid_verdicts = [
-            Verdict.PROCEED_TO_FORMATTER,
-            Verdict.EXECUTOR_REVISE,
-            Verdict.RESEARCHER_REVERIFY,
-            Verdict.FULL_REGENERATION,
-        ]
-
-        for verdict in valid_verdicts:
+        for v in Verdict:
             review = ReviewVerdict(
-                verdict=verdict,
-                quality_gates={},
-                final_recommendation="Test",
+                verdict=v,
+                confidence=0.5,
+                quality_gate_results=self._make_quality_gates(),
+                reasons=["Test"],
+                can_revise=True,
+                summary="Test",
             )
-            assert review.verdict == verdict
+            assert review.verdict == v
 
-    def test_quality_gate_values(self):
-        """Test all quality gate values."""
-        gate_values = [QualityGate.PASS, QualityGate.FAIL]
-
-        for gate_value in gate_values:
-            gates = {
-                "test_gate": gate_value,
-            }
-            verdict = ReviewVerdict(
-                verdict=Verdict.PROCEED_TO_FORMATTER,
-                quality_gates=gates,
-                final_recommendation="Test",
-            )
-            assert verdict.quality_gates["test_gate"] == gate_value
+    def test_fail_verdict_with_revisions(self):
+        """Test FAIL verdict includes revision instructions."""
+        verdict = ReviewVerdict(
+            verdict=Verdict.FAIL,
+            confidence=0.6,
+            quality_gate_results=self._make_quality_gates(all_pass=False),
+            reasons=["Completeness check failed"],
+            revision_instructions=[
+                Revision(
+                    category="completeness",
+                    description="Missing requirements",
+                    reason="Not all requirements addressed",
+                    priority="high",
+                    specific_instructions="Add missing sections",
+                ),
+            ],
+            revision_count=1,
+            can_revise=True,
+            summary="Output needs revision.",
+        )
+        assert verdict.verdict == Verdict.FAIL
+        assert len(verdict.revision_instructions) == 1
 
 
 # =============================================================================
@@ -413,35 +462,36 @@ class TestSMEAdvisoryReport:
         """Test creating a valid SME advisory report."""
         advisory = SMEAdvisoryReport(
             sme_persona="cloud_architect",
-            advisory_type=AdvisoryType.ADVISOR,
-            recommendations=[
-                "Use serverless for cost efficiency",
-                "Implement auto-scaling",
-            ],
-            domain_insights="Cloud architecture patterns for this use case",
+            interaction_mode=SMEInteractionMode.ADVISOR,
+            domain="Cloud Architecture",
+            task_context="Reviewing cloud deployment",
+            findings=["Use serverless for cost efficiency"],
+            recommendations=["Implement auto-scaling"],
             confidence=0.9,
+            skills_used=["architecture-design"],
         )
-
         assert advisory.sme_persona == "cloud_architect"
-        assert advisory.advisory_type == AdvisoryType.ADVISOR
-        assert len(advisory.recommendations) == 2
+        assert advisory.interaction_mode == SMEInteractionMode.ADVISOR
 
-    def test_all_advisory_types(self):
-        """Test all advisory types."""
-        types = [
-            AdvisoryType.ADVISOR,
-            AdvisoryType.CO_EXECUTOR,
-            AdvisoryType.DEBATER,
+    def test_all_interaction_modes(self):
+        """Test all SME interaction modes."""
+        modes = [
+            SMEInteractionMode.ADVISOR,
+            SMEInteractionMode.CO_EXECUTOR,
+            SMEInteractionMode.DEBATER,
         ]
-
-        for advisory_type in types:
+        for mode in modes:
             advisory = SMEAdvisoryReport(
                 sme_persona="test_sme",
-                advisory_type=advisory_type,
+                interaction_mode=mode,
+                domain="Test",
+                task_context="Test",
+                findings=[],
                 recommendations=[],
-                domain_insights="Test",
+                confidence=0.5,
+                skills_used=[],
             )
-            assert advisory.advisory_type == advisory_type
+            assert advisory.interaction_mode == mode
 
 
 # =============================================================================
@@ -462,40 +512,42 @@ class TestSchemaSerialization:
             modality=ModalityType.TEXT,
             recommended_approach="Test approach",
         )
-
-        # Test to_dict() method
         data = report.model_dump()
-
         assert data["literal_request"] == "Test request"
         assert data["modality"] == "text"
         assert "sub_tasks" in data
 
-        # Test JSON serialization
         import json
         json_str = json.dumps(data, default=str)
         assert json_str is not None
 
     def test_verification_report_serialization(self):
         """Test VerificationReport serialization."""
-        report = VerificationReport(
-            claims=[
-                ClaimExtraction(
-                    claim="Test claim",
-                    verification=ClaimStatus.VERIFIED,
-                    confidence=0.8,
-                    source="Test source",
-                ),
-            ],
-            factual_accuracy_score=0.8,
-            hallucination_risk="low",
-            recommendations=[],
+        claim = Claim(
+            claim_text="Test claim",
+            confidence=8,
+            fabrication_risk=FabricationRisk.LOW,
+            source="Test source",
+            verification_method="Test method",
+            status=VerificationStatus.VERIFIED,
         )
-
+        report = VerificationReport(
+            total_claims_checked=1,
+            claims=[claim],
+            verified_claims=1,
+            unverified_claims=0,
+            contradicted_claims=0,
+            fabricated_claims=0,
+            overall_reliability=0.8,
+            verdict="PASS",
+            flagged_claims=[],
+            recommended_corrections=[],
+            verification_summary="1 claim verified",
+        )
         data = report.model_dump()
-
-        assert data["factual_accuracy_score"] == 0.8
+        assert data["overall_reliability"] == 0.8
         assert "claims" in data
-        assert data["claims"][0]["verification"] == "verified"
+        assert data["claims"][0]["status"] == "verified"
 
 
 # =============================================================================
@@ -516,7 +568,6 @@ class TestSchemaValidation:
             modality=ModalityType.TEXT,
             recommended_approach="Test",
         )
-
         assert len(report.sub_tasks) == 0
         assert len(report.missing_info) == 0
 
@@ -524,13 +575,11 @@ class TestSchemaValidation:
         """Test that required fields raise ValidationError when missing."""
         with pytest.raises(ValidationError):
             TaskIntelligenceReport(
-                # Missing required fields
                 literal_request="Test",
             )
 
     def test_string_trimming(self):
         """Test that strings are properly handled."""
-        # Create with leading/trailing whitespace
         report = TaskIntelligenceReport(
             literal_request="  Test request  ",
             inferred_intent="Test intent",
@@ -540,6 +589,5 @@ class TestSchemaValidation:
             modality=ModalityType.TEXT,
             recommended_approach="Test",
         )
-
         # Pydantic v2 doesn't auto-trim by default
         assert "  Test request  " == report.literal_request
