@@ -17,6 +17,7 @@ The system supports multiple LLM providers through a unified configuration inter
 | **Mistral AI** | Mistral models | `MAS_LLM_PROVIDER=mistral` |
 | **Cohere** | Command models | `MAS_LLM_PROVIDER=cohere` |
 | **Together AI** | Open-source models | `MAS_LLM_PROVIDER=together` |
+| **GLM (Zhipu AI)** | GLM-4 models | `MAS_LLM_PROVIDER=glm` |
 | **Custom** | Any OpenAI-compatible endpoint | `MAS_LLM_PROVIDER=custom` |
 
 ## Quick Start
@@ -165,6 +166,21 @@ TOGETHER_API_KEY=your-api-key
 - Orchestrator/Council: `meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo`
 - Operational Agents: `meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo`
 - Light Agents: `meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo`
+
+### GLM (Zhipu AI)
+
+```bash
+MAS_LLM_PROVIDER=glm
+GLM_API_KEY=your-api-key
+
+# Optional: For custom endpoint (default: https://open.bigmodel.cn/api/paas/v4)
+# GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+```
+
+**Default Models:**
+- Orchestrator/Council: `glm-4-plus`
+- Operational Agents: `glm-4-plus`
+- Light Agents: `glm-4-flash`
 
 ### Custom (OpenAI-Compatible)
 

@@ -15,7 +15,6 @@ from src.schemas.verifier import (
     ClaimBatch,
     VerificationStatus,
     FabricationRisk,
-    ConfidenceLevel,
 )
 
 

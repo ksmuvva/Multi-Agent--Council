@@ -127,7 +127,7 @@ cp .env.example .env
 The system supports multiple LLM providers. Configure your preferred provider in `.env`:
 
 ```bash
-# Choose your provider (anthropic, openai, google, mistral, cohere, together, custom)
+# Choose your provider (anthropic, openai, google, mistral, cohere, together, glm, custom)
 MAS_LLM_PROVIDER=anthropic
 
 # Add corresponding API key
@@ -142,6 +142,7 @@ ANTHROPIC_API_KEY=sk-ant-your-key-here
 - **Mistral AI** - `MAS_LLM_PROVIDER=mistral`
 - **Cohere** - `MAS_LLM_PROVIDER=cohere`
 - **Together AI** - `MAS_LLM_PROVIDER=together`
+- **GLM (Zhipu AI)** - `MAS_LLM_PROVIDER=glm` (GLM-4 models)
 - **Custom/OpenAI-compatible** - `MAS_LLM_PROVIDER=custom` (for Ollama, vLLM, etc.)
 
 📖 **See [docs/llm-configuration.md](docs/llm-configuration.md) for detailed configuration guide**
@@ -187,6 +188,7 @@ AZURE_OPENAI_API_KEY=xxxxx          # For Azure OpenAI
 MISTRAL_API_KEY=xxxxx               # For Mistral
 COHERE_API_KEY=xxxxx                # For Cohere
 TOGETHER_API_KEY=xxxxx              # For Together AI
+GLM_API_KEY=xxxxx                   # For Zhipu AI/GLM
 
 # Budget Control
 MAS_MAX_BUDGET=5.00                 # Maximum session budget in USD

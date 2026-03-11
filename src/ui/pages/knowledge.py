@@ -8,6 +8,8 @@ stores extracted insights, patterns, and decisions.
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
+from dataclasses import dataclass
+from enum import Enum
 import re
 
 import streamlit as st

@@ -84,3 +84,17 @@ TOGETHER_API_KEY=xxxxx
 | Orchestrator | meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo |
 | Council | meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo |
 | Analyst | meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo |
+
+## GLM (Zhipu AI)
+
+```bash
+MAS_LLM_PROVIDER=glm
+GLM_API_KEY=xxxxx
+```
+
+| Agent | Default Model |
+|-------|---------------|
+| Orchestrator | glm-4-plus |
+| Council | glm-4-plus |
+| Analyst | glm-4-plus |
+| Verifier | glm-4-plus |

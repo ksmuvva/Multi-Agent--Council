@@ -490,7 +490,7 @@ def system_get_status() -> Dict[str, Any]:
         "tier2_agents": get_active_agents(2),
         "tier3_agents": get_active_agents(3),
         "tier4_agents": get_active_agents(4),
-        "council_agents": get_council_agents(),
+        "council_agents": get_council_agents(4),
         "sme_personas": get_registry_stats(),
         "ensemble_patterns": list(ENSEMBLE_REGISTRY.keys()),
         "mcp_tools": list_tools(),
