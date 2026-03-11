@@ -54,25 +54,25 @@ class SMESelectionReport(BaseModel):
         ...,
         max_length=3,
         description="Selected SME personas (max 3)"
-    ),
+    )
     domain_gaps_identified: List[str] = Field(
         default_factory=list,
         description="Domain gaps that couldn't be filled"
-    ),
+    )
     collaboration_plan: str = Field(
         ...,
         description="How SMEs should collaborate with operational agents"
-    ),
+    )
     expected_sme_contributions: Dict[str, str] = Field(
         ...,
         description="Expected contributions from each SME"
-    ),
+    )
     tier_recommendation: int = Field(
         ...,
         ge=3,
         le=4,
         description="Recommended tier (3 or 4)"
-    ),
+    )
     requires_full_council: bool = Field(
         default=False,
         description="Whether full Council (Arbiter + Ethics) is needed"
@@ -90,7 +90,7 @@ class QualityCriteria(BaseModel):
     measurement_method: str = Field(
         ...,
         description="How this will be measured"
-    ),
+    )
     weight: float = Field(
         ...,
         ge=0.0,
@@ -109,21 +109,21 @@ class QualityStandard(BaseModel):
     quality_criteria: List[QualityCriteria] = Field(
         ...,
         description="Quality acceptance criteria"
-    ),
+    )
     overall_pass_threshold: float = Field(
         ...,
         ge=0.0,
         le=1.0,
         description="Overall score needed to pass"
-    ),
+    )
     critical_must_haves: List[str] = Field(
         ...,
         description="Non-negotiable requirements"
-    ),
+    )
     nice_to_haves: List[str] = Field(
         default_factory=list,
         description="Desirable but not required"
-    ),
+    )
     measurement_protocol: str = Field(
         ...,
         description="How quality will be measured"
@@ -149,18 +149,18 @@ class QualityVerdict(BaseModel):
     disputed_items: List[DisputedItem] = Field(
         ...,
         description="Items in dispute"
-    ),
+    )
     debate_rounds_completed: int = Field(
         ...,
         ge=2,
         description="Number of debate rounds completed"
-    ),
+    )
     arbiter_analysis: str = Field(..., description="Arbiter's analysis")
     resolution: str = Field(..., description="Final resolution (binding)")
     required_actions: List[str] = Field(
         ...,
         description="Actions required by resolution"
-    ),
+    )
     overrides_reviewer: bool = Field(
         default=False,
         description="Whether this overrides the Reviewer"
@@ -214,22 +214,22 @@ class EthicsReview(BaseModel):
     flagged_issues: List[FlaggedIssue] = Field(
         ...,
         description="Issues found during review"
-    ),
+    )
     bias_analysis: str = Field(..., description="Analysis of potential bias")
     pii_scan_results: str = Field(..., description="Results of PII scanning")
     compliance_assessment: str = Field(
         ...,
         description="Compliance risk assessment"
-    ),
+    )
     safety_assessment: str = Field(..., description="Safety risk assessment")
     recommendations: List[str] = Field(
         ...,
         description="Recommendations for improvement"
-    ),
+    )
     can_proceed: bool = Field(
         ...,
         description="Whether output can proceed as-is"
-    ),
+    )
     required_remediations: List[str] = Field(
         default_factory=list,
         description="Required fixes before output can proceed"
