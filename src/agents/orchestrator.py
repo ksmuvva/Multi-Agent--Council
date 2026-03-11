@@ -598,8 +598,16 @@ class OrchestratorAgent:
             input_data=input_content,
             model=self.council_model,
         )
-        # Store quality standards for later use
-        session.agent_executions[-1].output = result.get("output")
+        # Track execution and store quality standards
+        execution = AgentExecution(
+            agent_name="Quality Arbiter",
+            start_time=time.time(),
+            status=result.get("status", "complete"),
+            output=result.get("output"),
+            tokens_used=result.get("tokens_used", 0),
+            cost_usd=result.get("cost_usd", 0.0),
+        )
+        session.agent_executions.append(execution)
 
     def _requires_ethics_review(self, input_content: str) -> bool:
         """Check if Ethics Advisor review is needed."""
@@ -620,7 +628,16 @@ class OrchestratorAgent:
             input_data=input_content,
             model=self.council_model,
         )
-        session.agent_executions[-1].output = result.get("output")
+        # Track execution
+        execution = AgentExecution(
+            agent_name="Ethics & Safety Advisor",
+            start_time=time.time(),
+            status=result.get("status", "complete"),
+            output=result.get("output"),
+            tokens_used=result.get("tokens_used", 0),
+            cost_usd=result.get("cost_usd", 0.0),
+        )
+        session.agent_executions.append(execution)
 
     # ========================================================================
     # Pipeline Execution
@@ -944,9 +961,11 @@ class OrchestratorAgent:
 
     def _evaluate_verdict(self, session: SessionState) -> MatrixAction:
         """Evaluate verdict matrix from review agent results."""
+        from src.core.verdict import Verdict as VerdictEnum
+
         # Extract verdicts from Verifier and Critic results
-        verifier_verdict = "PASS"
-        critic_verdict = "PASS"
+        verifier_verdict = VerdictEnum.PASS
+        critic_verdict = VerdictEnum.PASS
 
         for execution in session.agent_executions:
             if execution.agent_name == "Verifier":
@@ -964,11 +983,14 @@ class OrchestratorAgent:
 
         return outcome.action
 
-    def _parse_verdict(self, output: Any) -> str:
-        """Parse verdict from agent output."""
+    def _parse_verdict(self, output: Any) -> "Verdict":
+        """Parse verdict from agent output, returning a Verdict enum."""
+        from src.core.verdict import Verdict as VerdictEnum
+
         if isinstance(output, dict):
-            return output.get("verdict", "PASS").upper()
-        return "PASS"
+            verdict_str = output.get("verdict", "PASS").upper()
+            return VerdictEnum.PASS if verdict_str == "PASS" else VerdictEnum.FAIL
+        return VerdictEnum.PASS
 
     def _should_trigger_debate(self, session: SessionState, phase: Phase) -> bool:
         """Check if debate should be triggered."""
