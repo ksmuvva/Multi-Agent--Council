@@ -47,6 +47,19 @@ class CompactionConfig:
     summary_ratio: float = 0.3  # Target size: compacted / original
     min_summary_length: int = 100  # Minimum summary length
 
+    def __post_init__(self):
+        """Validate configuration bounds."""
+        if self.max_tokens < 1:
+            self.max_tokens = 1
+        if self.max_messages < 1:
+            self.max_messages = 1
+        if self.max_session_age_hours <= 0:
+            self.max_session_age_hours = 1.0
+        if self.recent_messages_to_keep < 0:
+            self.recent_messages_to_keep = 0
+        if not (0.0 < self.summary_ratio <= 1.0):
+            self.summary_ratio = 0.3
+
 
 # =============================================================================
 # Compaction Result
@@ -249,6 +262,12 @@ class MessageAnalyzer:
         Returns:
             Summary text
         """
+        total_messages = len(session.messages)
+        if total_messages > 0:
+            reduction_pct = 100 - (100 * len(preserved_indices) / total_messages)
+        else:
+            reduction_pct = 0.0
+
         summary_parts = [
             f"# Session Summary",
             f"",
@@ -257,7 +276,7 @@ class MessageAnalyzer:
             f"**Tier**: {session.tier}",
             f"**Total Cost**: ${session.total_cost_usd:.4f}",
             f"**Messages Compacted**: {len(removed_indices)} → {len(preserved_indices)}",
-            f"**Reduction**: {100 - (100 * len(preserved_indices) / len(session.messages)):.1f}%",
+            f"**Reduction**: {reduction_pct:.1f}%",
         ]
 
         # Key preserved items

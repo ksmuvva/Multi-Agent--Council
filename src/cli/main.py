@@ -55,10 +55,14 @@ def setup(
 
     # Load configuration
     if config_file:
-        import yaml
-        with open(config_file) as f:
-            config = yaml.safe_load(f)
-        ctx.obj = {"config": config}
+        try:
+            import yaml
+            with open(config_file) as f:
+                config = yaml.safe_load(f)
+            ctx.obj = {"config": config or {}}
+        except (yaml.YAMLError, OSError) as e:
+            typer.echo(f"Error loading config file '{config_file}': {e}", err=True)
+            raise typer.Exit(code=1)
     else:
         ctx.obj = {"config": {}}
 
@@ -85,8 +89,6 @@ def query(
 
     Use --input-file to attach files for multimodal input (code, documents, data).
     """
-    ctx = typer.Context
-
     # Emit task started event
     session_id_to_use = session_id or f"cli_{int(datetime.now().timestamp())}"
     emit_task_started("cli", prompt, tier or 2, session_id_to_use)

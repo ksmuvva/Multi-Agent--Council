@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from src.config import get_model_for_agent, get_settings
+from src.utils.logging import get_logger
 
 
 # =============================================================================
@@ -145,8 +146,7 @@ def _get_output_schema(agent_name: str) -> Optional[Dict[str, Any]]:
         if model_class and hasattr(model_class, "model_json_schema"):
             return model_class.model_json_schema()
     except Exception as e:
-        import logging
-        logging.getLogger("sdk_integration").debug(f"Failed to load schema '{model_name}': {e}")
+        get_logger("sdk_integration").debug(f"Failed to load schema '{model_name}': {e}")
 
     return None
 
@@ -418,8 +418,7 @@ def _simulate_response(
     This is the fallback for development/testing without API keys.
     WARNING: Not for production use - returns simulated data.
     """
-    import logging
-    logging.getLogger("sdk_integration").warning(
+    get_logger("sdk_integration").warning(
         f"Using simulated response - no API available for agent '{sdk_kwargs.get('name', 'Agent')}'"
     )
     agent_name = sdk_kwargs.get("name", "Agent")

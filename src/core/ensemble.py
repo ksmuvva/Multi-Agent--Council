@@ -9,14 +9,15 @@ Named ensemble patterns for common multi-agent scenarios:
 - Requirements Workshop
 """
 
-import logging
 import time
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 from abc import ABC, abstractmethod
 
-logger = logging.getLogger(__name__)
+from src.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class EnsembleType(str, Enum):
