@@ -85,8 +85,8 @@ def parse_knowledge_file(file_path: Path) -> Optional[KnowledgeEntry]:
                 frontmatter_text = content[3:end_marker]
                 try:
                     frontmatter = yaml.safe_load(frontmatter_text) or {}
-                except:
-                    pass
+                except Exception:
+                    frontmatter = {}
                 body = content[end_marker + 4:].strip()
 
         # Create entry
@@ -101,7 +101,7 @@ def parse_knowledge_file(file_path: Path) -> Optional[KnowledgeEntry]:
             related_entries=frontmatter.get("related_entries", []),
             metadata=frontmatter,
         )
-    except Exception as e:
+    except Exception:
         return None
 
 

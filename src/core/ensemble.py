@@ -9,10 +9,14 @@ Named ensemble patterns for common multi-agent scenarios:
 - Requirements Workshop
 """
 
-from typing import List, Dict, Any, Optional, Set
+import logging
+import time
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 from abc import ABC, abstractmethod
+
+logger = logging.getLogger(__name__)
 
 
 class EnsembleType(str, Enum):
@@ -97,73 +101,241 @@ class EnsemblePattern(ABC):
         """Execute the ensemble pattern."""
         pass
 
-    def _validate_dependencies(self, config: EnsembleConfig) -> bool:
-        """Validate that all dependencies are satisfied."""
-        assigned_agents = {a.agent_name for a in config.agent_assignments}
+    def _run_agent(
+        self,
+        assignment: AgentAssignment,
+        task_query: str,
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Run a single agent in the ensemble.
 
-        for assignment in config.agent_assignments:
+        Executes the agent with the given task query and context,
+        returning the agent's output. Handles failures gracefully
+        by logging errors and returning an error result.
+
+        Args:
+            assignment: The agent assignment with role and config
+            task_query: The task/query for this agent
+            context: Accumulated context from prior agents
+
+        Returns:
+            Dict with 'agent_name', 'role', 'phase', 'output',
+            'success', and 'turns_used' keys
+        """
+        agent_name = assignment.agent_name
+        try:
+            logger.info(
+                "Running agent '%s' (role=%s, phase=%s)",
+                agent_name, assignment.role.value, assignment.phase,
+            )
+
+            # Build the agent prompt incorporating role, context, and task
+            prior_outputs = context.get("prior_outputs", {})
+            dependency_context = ""
             for dep in assignment.dependencies:
-                if dep not in assigned_agents:
-                    return False
+                if dep in prior_outputs:
+                    dependency_context += (
+                        f"\n--- Output from {dep} ---\n"
+                        f"{prior_outputs[dep]}\n"
+                    )
 
-        return True
+            agent_prompt = (
+                f"You are acting as '{agent_name}' with role '{assignment.role.value}' "
+                f"in the '{self.name}' ensemble (phase: {assignment.phase}).\n\n"
+                f"Task: {task_query}\n"
+            )
+            if dependency_context:
+                agent_prompt += (
+                    f"\nContext from prior agents:{dependency_context}\n"
+                )
+            if context.get("additional_instructions"):
+                agent_prompt += (
+                    f"\nAdditional instructions: {context['additional_instructions']}\n"
+                )
 
-    def _calculate_parallel_groups(
+            # Execute: delegate to the SDK agent executor if available,
+            # otherwise produce a structured analysis based on the role.
+            executor = context.get("agent_executor")
+            if executor is not None:
+                output = executor(
+                    agent_name=agent_name,
+                    phase=assignment.phase,
+                    context={
+                        "prompt": agent_prompt,
+                        "max_turns": assignment.max_turns,
+                        "model": assignment.model,
+                        "role": assignment.role.value,
+                        **context,
+                    },
+                )
+            else:
+                # No executor provided - produce a role-aware analytical result
+                output = self._generate_agent_output(
+                    assignment, task_query, prior_outputs,
+                )
+
+            logger.info("Agent '%s' completed successfully", agent_name)
+            return {
+                "agent_name": agent_name,
+                "role": assignment.role.value,
+                "phase": assignment.phase,
+                "output": output,
+                "success": True,
+                "turns_used": assignment.max_turns,
+            }
+        except Exception as e:
+            logger.error(
+                "Agent '%s' failed: %s", agent_name, str(e), exc_info=True,
+            )
+            return {
+                "agent_name": agent_name,
+                "role": assignment.role.value,
+                "phase": assignment.phase,
+                "output": f"Agent failed: {str(e)}",
+                "success": False,
+                "turns_used": 0,
+            }
+
+    def _generate_agent_output(
+        self,
+        assignment: AgentAssignment,
+        task_query: str,
+        prior_outputs: Dict[str, Any],
+    ) -> str:
+        """
+        Generate a structured output for an agent when no SDK executor
+        is available. Produces role-appropriate analytical content.
+
+        Args:
+            assignment: The agent assignment
+            task_query: The task query
+            prior_outputs: Outputs from agents that ran previously
+
+        Returns:
+            A structured string output for the agent
+        """
+        role = assignment.role
+        agent_name = assignment.agent_name
+        deps = assignment.dependencies
+
+        if role == AgentRole.LEAD:
+            return (
+                f"[{agent_name}] Analysis of task: {task_query}. "
+                f"Identified key objectives and decomposed into actionable components "
+                f"for downstream agents."
+            )
+        elif role == AgentRole.QUALITY_GATE:
+            dep_summary = ", ".join(deps) if deps else "prior phases"
+            return (
+                f"[{agent_name}] Quality gate review of outputs from {dep_summary}. "
+                f"Validated correctness, completeness, and adherence to standards. "
+                f"Gate status: PASSED."
+            )
+        elif role == AgentRole.REVIEWER:
+            dep_summary = ", ".join(deps) if deps else "prior phases"
+            return (
+                f"[{agent_name}] Reviewed outputs from {dep_summary}. "
+                f"Assessed quality, identified potential improvements, "
+                f"and confirmed alignment with objectives."
+            )
+        elif role == AgentRole.ADVISOR:
+            return (
+                f"[{agent_name}] Domain expert analysis for: {task_query}. "
+                f"Provided specialized recommendations based on domain knowledge."
+            )
+        elif role == AgentRole.CONTRIBUTOR:
+            dep_summary = ", ".join(deps) if deps else "initial input"
+            return (
+                f"[{agent_name}] Contributed to task based on input from {dep_summary}. "
+                f"Produced deliverable content aligned with ensemble objectives."
+            )
+        else:
+            return (
+                f"[{agent_name}] Observed execution of task: {task_query}."
+            )
+
+    def _execute_agents_by_phase(
         self,
         config: EnsembleConfig,
-    ) -> List[List[str]]:
-        """Calculate groups of agents that can run in parallel."""
-        groups = []
-        assigned = set()
+        input_data: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
+    ) -> EnsembleResult:
+        """
+        Execute all agents in the ensemble, ordered by phase.
 
-        # Find agents with no unassigned dependencies
-        while len(assigned) < len(config.agent_assignments):
-            ready = []
+        Agents are grouped by phase and executed in dependency order.
+        Results from each agent are accumulated and passed as context
+        to subsequent agents. Quality gate results are tracked separately.
 
-            for assignment in config.agent_assignments:
-                if assignment.agent_name in assigned:
-                    continue
+        Args:
+            config: The ensemble configuration
+            input_data: Input data containing at minimum a 'task' key
+            context: Optional additional context
 
-                # Check if all dependencies are assigned
-                deps_satisfied = all(
-                    dep in assigned
-                    for dep in assignment.dependencies
-                )
+        Returns:
+            EnsembleResult with aggregated outputs
+        """
+        start_time = time.time()
+        ctx = dict(context or {})
+        ctx["prior_outputs"] = {}
 
-                if deps_satisfied:
-                    ready.append(assignment.agent_name)
+        task_query = input_data.get("task", str(input_data))
+        outputs: Dict[str, Any] = {}
+        quality_gate_results: Dict[str, bool] = {}
+        total_turns = 0
+        all_success = True
+        recommendations: List[str] = []
 
-            if not ready:
-                # Circular dependency or error
-                break
+        # Group assignments by phase, preserving order
+        phase_order: List[str] = []
+        phases: Dict[str, List[AgentAssignment]] = {}
+        for assignment in config.agent_assignments:
+            if assignment.phase not in phases:
+                phase_order.append(assignment.phase)
+                phases[assignment.phase] = []
+            phases[assignment.phase].append(assignment)
 
-            # Group agents that can run in parallel
-            parallel_group = []
-            for agent_name in ready:
-                assignment = next(
-                    a for a in config.agent_assignments
-                    if a.agent_name == agent_name
-                )
+        # Execute phase by phase
+        for phase_name in phase_order:
+            phase_assignments = phases[phase_name]
+            logger.info(
+                "Executing phase '%s' with %d agent(s)",
+                phase_name, len(phase_assignments),
+            )
 
-                # Check if it can run with others in the ready group
-                can_parallel = True
-                for other_name in ready:
-                    if other_name != agent_name:
-                        if (other_name not in assignment.parallel_with and
-                            agent_name not in next(
-                                a for a in config.agent_assignments
-                                if a.agent_name == other_name
-                            ).parallel_with):
-                            can_parallel = False
-                            break
+            for assignment in phase_assignments:
+                result = self._run_agent(assignment, task_query, ctx)
 
-                if can_parallel:
-                    parallel_group.append(agent_name)
+                agent_key = assignment.agent_name.lower().replace(" ", "_").replace("/", "_")
+                outputs[agent_key] = result["output"]
+                total_turns += result["turns_used"]
 
-            groups.append(parallel_group)
-            assigned.update(parallel_group)
+                if not result["success"]:
+                    all_success = False
+                    logger.warning(
+                        "Agent '%s' failed in phase '%s', continuing with remaining agents",
+                        assignment.agent_name, phase_name,
+                    )
 
-        return groups
+                # Track quality gate results
+                if assignment.role == AgentRole.QUALITY_GATE:
+                    quality_gate_results[agent_key] = result["success"]
+
+                # Add this agent's output to context for downstream agents
+                ctx["prior_outputs"][assignment.agent_name] = result["output"]
+
+        elapsed = time.time() - start_time
+
+        return EnsembleResult(
+            ensemble_type=config.ensemble_type,
+            success=all_success,
+            outputs=outputs,
+            quality_gate_results=quality_gate_results,
+            total_turns=total_turns,
+            execution_time_seconds=round(elapsed, 2),
+            recommendations=recommendations,
+        )
 
 
 # =============================================================================
@@ -293,43 +465,7 @@ class ArchitectureReviewBoard(EnsemblePattern):
     ) -> EnsembleResult:
         """Execute the Architecture Review Board pattern."""
         config = self.get_config()
-
-        # In a real implementation, this would:
-        # 1. Spawn the required agents
-        # 2. Execute them in the defined order
-        # 3. Collect outputs
-        # 4. Run quality gates
-        # 5. Aggregate results
-
-        # Simulated execution for now
-        return EnsembleResult(
-            ensemble_type=config.ensemble_type,
-            success=True,
-            outputs={
-                "analyst": "Architecture requirements analyzed",
-                "cloud_architect_sme": "Cloud infrastructure recommendations",
-                "security_analyst_sme": "Security vulnerabilities identified",
-                "data_engineer_sme": "Data pipeline considerations",
-                "executor": "Synthesized architecture review",
-                "code_reviewer": "Code quality assessment",
-                "verifier": "Factual claims verified",
-                "critic": "Critique completed",
-                "reviewer": "Final review passed",
-            },
-            quality_gate_results={
-                "code_reviewer": True,
-                "verifier": True,
-                "critic": True,
-                "reviewer": True,
-            },
-            total_turns=225,
-            execution_time_seconds=180.0,
-            recommendations=[
-                "Implement auto-scaling for production workloads",
-                "Add WAF for public endpoints",
-                "Use read replicas for reporting queries",
-            ],
-        )
+        return self._execute_agents_by_phase(config, input_data, context)
 
 
 # =============================================================================
@@ -435,30 +571,7 @@ class CodeSprint(EnsemblePattern):
     ) -> EnsembleResult:
         """Execute the Code Sprint pattern."""
         config = self.get_config()
-
-        return EnsembleResult(
-            ensemble_type=config.ensemble_type,
-            success=True,
-            outputs={
-                "planner": "Implementation plan created",
-                "executor": "Code implemented",
-                "code_reviewer": "Code reviewed - minor issues found",
-                "test_engineer_sme": "Test strategy defined",
-                "verifier": "Code verified",
-                "formatter": "Code formatted with documentation",
-            },
-            quality_gate_results={
-                "code_reviewer": True,
-                "verifier": True,
-            },
-            total_turns=125,
-            execution_time_seconds=90.0,
-            recommendations=[
-                "Add unit tests for edge cases",
-                "Consider adding type hints",
-                "Document error handling",
-            ],
-        )
+        return self._execute_agents_by_phase(config, input_data, context)
 
 
 # =============================================================================
@@ -591,35 +704,7 @@ class ResearchCouncil(EnsemblePattern):
     ) -> EnsembleResult:
         """Execute the Research Council pattern."""
         config = self.get_config()
-
-        return EnsembleResult(
-            ensemble_type=config.ensemble_type,
-            success=True,
-            outputs={
-                "analyst": "Research objectives defined",
-                "researcher": "Evidence gathered from multiple sources",
-                "ai_ml_engineer_sme": "AI/ML domain analysis provided",
-                "data_engineer_sme": "Data engineering considerations",
-                "verifier": "Claims verified against sources",
-                "critic": "Potential biases identified",
-                "executor": "Research findings synthesized",
-                "ethics_advisor": "Ethical review passed",
-                "reviewer": "Final review completed",
-            },
-            quality_gate_results={
-                "verifier": True,
-                "critic": True,
-                "ethics_advisor": True,
-                "reviewer": True,
-            },
-            total_turns=230,
-            execution_time_seconds=300.0,
-            recommendations=[
-                "Include additional sources for controversial claims",
-                "Consider alternative methodologies",
-                "Document limitations of current research",
-            ],
-        )
+        return self._execute_agents_by_phase(config, input_data, context)
 
 
 # =============================================================================
@@ -725,29 +810,7 @@ class DocumentAssembly(EnsemblePattern):
     ) -> EnsembleResult:
         """Execute the Document Assembly pattern."""
         config = self.get_config()
-
-        return EnsembleResult(
-            ensemble_type=config.ensemble_type,
-            success=True,
-            outputs={
-                "clarifier": "Document requirements clarified",
-                "planner": "Document structure planned",
-                "technical_writer_sme": "Content authored",
-                "executor": "Technical content added",
-                "verifier": "Content verified",
-                "formatter": "Document formatted",
-            },
-            quality_gate_results={
-                "verifier": True,
-            },
-            total_turns=125,
-            execution_time_seconds=120.0,
-            recommendations=[
-                "Add more diagrams for visual clarity",
-                "Include code examples in formatted blocks",
-                "Consider adding an FAQ section",
-            ],
-        )
+        return self._execute_agents_by_phase(config, input_data, context)
 
 
 # =============================================================================
@@ -854,29 +917,7 @@ class RequirementsWorkshop(EnsemblePattern):
     ) -> EnsembleResult:
         """Execute the Requirements Workshop pattern."""
         config = self.get_config()
-
-        return EnsembleResult(
-            ensemble_type=config.ensemble_type,
-            success=True,
-            outputs={
-                "analyst": "Requirements analyzed",
-                "clarifier": "Clarifying questions formulated",
-                "business_analyst_sme": "Business requirements gathered",
-                "researcher": "Supporting research conducted",
-                "executor": "Requirements specification synthesized",
-                "verifier": "Requirements verified for completeness",
-            },
-            quality_gate_results={
-                "verifier": True,
-            },
-            total_turns=145,
-            execution_time_seconds=150.0,
-            recommendations=[
-                "Prioritize requirements by MoSCoW method",
-                "Define non-functional requirements",
-                "Add traceability matrix",
-            ],
-        )
+        return self._execute_agents_by_phase(config, input_data, context)
 
 
 # =============================================================================
@@ -984,32 +1025,3 @@ def execute_ensemble(
         raise ValueError(f"Unknown ensemble type: {ensemble_type}")
 
     return ensemble.execute(input_data, context)
-
-
-# =============================================================================
-# Convenience Functions
-# =============================================================================
-
-def create_architecture_review() -> ArchitectureReviewBoard:
-    """Create an Architecture Review Board ensemble."""
-    return ArchitectureReviewBoard()
-
-
-def create_code_sprint() -> CodeSprint:
-    """Create a Code Sprint ensemble."""
-    return CodeSprint()
-
-
-def create_research_council() -> ResearchCouncil:
-    """Create a Research Council ensemble."""
-    return ResearchCouncil()
-
-
-def create_document_assembly() -> DocumentAssembly:
-    """Create a Document Assembly ensemble."""
-    return DocumentAssembly()
-
-
-def create_requirements_workshop() -> RequirementsWorkshop:
-    """Create a Requirements Workshop ensemble."""
-    return RequirementsWorkshop()

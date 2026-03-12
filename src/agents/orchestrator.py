@@ -1031,15 +1031,101 @@ class OrchestratorAgent:
         for sme in session.active_smes:
             protocol.add_sme_participant(sme)
 
-        # Conduct debate rounds (simplified)
-        for _ in range(session.max_debate_rounds):
-            # In real implementation, would spawn agents for debate
+        # Conduct debate rounds by spawning agents and collecting positions
+        for round_idx in range(session.max_debate_rounds):
             session.debate_rounds += 1
 
-            # Check if consensus reached
-            # protocol.conduct_round(...)
-            # if not protocol.should_continue_debate(...):
-            #     break
+            # Gather the current solution from Executor's latest output
+            executor_output = next(
+                (e.output for e in reversed(session.agent_executions)
+                 if e.agent_name == "Executor" and e.output),
+                context.get("user_prompt", ""),
+            )
+            executor_position = (
+                executor_output if isinstance(executor_output, str)
+                else executor_output.get("content", str(executor_output))
+                if isinstance(executor_output, dict) else str(executor_output)
+            )
+
+            # Spawn Critic for adversarial challenges
+            critic_result = self._spawn_agent(
+                session=session,
+                agent_name="Critic",
+                system_prompt_template="config/agents/critic/CLAUDE.md",
+                input_data=(
+                    f"DEBATE ROUND {round_idx + 1}: Challenge this solution.\n\n"
+                    f"Solution:\n{executor_position}"
+                ),
+                model=self._get_model_for_agent("Critic"),
+            )
+            critic_challenges = []
+            if critic_result.get("status") == "success" and critic_result.get("output"):
+                c_out = critic_result["output"]
+                if isinstance(c_out, dict):
+                    critic_challenges = c_out.get("challenges", c_out.get("issues", [str(c_out)]))
+                elif isinstance(c_out, str):
+                    critic_challenges = [c_out]
+
+            # Spawn Verifier for fact-checking
+            verifier_result = self._spawn_agent(
+                session=session,
+                agent_name="Verifier",
+                system_prompt_template="config/agents/verifier/CLAUDE.md",
+                input_data=(
+                    f"DEBATE ROUND {round_idx + 1}: Verify claims in this solution.\n\n"
+                    f"Solution:\n{executor_position}"
+                ),
+                model=self._get_model_for_agent("Verifier"),
+            )
+            verifier_checks = []
+            if verifier_result.get("status") == "success" and verifier_result.get("output"):
+                v_out = verifier_result["output"]
+                if isinstance(v_out, dict):
+                    verifier_checks = v_out.get("checks", v_out.get("issues", [str(v_out)]))
+                elif isinstance(v_out, str):
+                    verifier_checks = [v_out]
+
+            # Collect SME arguments
+            sme_arguments: Dict[str, str] = {}
+            for sme in session.active_smes:
+                sme_result = self._spawn_agent(
+                    session=session,
+                    agent_name=sme,
+                    system_prompt_template="config/agents/council/CLAUDE.md",
+                    agent_role="sme",
+                    input_data=(
+                        f"DEBATE ROUND {round_idx + 1}: Provide your expert perspective.\n\n"
+                        f"Solution:\n{executor_position}\n\n"
+                        f"Critic challenges: {critic_challenges}\n"
+                        f"Verifier checks: {verifier_checks}"
+                    ),
+                    model=self.council_model,
+                )
+                if sme_result.get("status") == "success" and sme_result.get("output"):
+                    s_out = sme_result["output"]
+                    sme_arguments[sme] = (
+                        s_out if isinstance(s_out, str)
+                        else s_out.get("argument", str(s_out))
+                        if isinstance(s_out, dict) else str(s_out)
+                    )
+
+            # Conduct the debate round with real agent outputs
+            debate_round = protocol.conduct_round(
+                executor_position=executor_position,
+                critic_challenges=critic_challenges,
+                verifier_checks=verifier_checks,
+                sme_arguments=sme_arguments,
+            )
+
+            if self.verbose:
+                self._log(
+                    f"Debate round {round_idx + 1}: "
+                    f"consensus={debate_round.consensus_score:.2f}"
+                )
+
+            # Stop if consensus reached
+            if not protocol.should_continue_debate(debate_round.consensus_score):
+                break
 
         outcome = protocol.get_outcome()
 
@@ -1112,21 +1198,79 @@ class OrchestratorAgent:
         return response
 
     def _format_response(self, outputs: List[Any], session: SessionState) -> str:
-        """Format outputs into a user-friendly response."""
-        # In a real implementation, this would synthesize the outputs
-        # into a coherent response using the Formatter agent
+        """
+        Synthesize all agent outputs into a unified, coherent response.
+
+        Aggregates outputs by role, resolves conflicts between agent
+        outputs, and produces a single user-facing response.
+        """
         if not outputs:
             return "I apologize, but I wasn't able to generate a response."
 
-        # Simple concatenation for now
-        parts = []
-        for output in outputs:
-            if isinstance(output, str):
-                parts.append(output)
-            elif isinstance(output, dict):
-                parts.append(output.get("content", str(output)))
+        # Categorize outputs by agent role for structured synthesis
+        solution_parts: List[str] = []
+        review_notes: List[str] = []
+        research_findings: List[str] = []
 
-        return "\n\n".join(parts)
+        for execution in session.agent_executions:
+            if execution.status not in ("complete", "success") or not execution.output:
+                continue
+            content = (
+                execution.output if isinstance(execution.output, str)
+                else execution.output.get("content", str(execution.output))
+                if isinstance(execution.output, dict) else str(execution.output)
+            )
+
+            if execution.agent_name in ("Executor",):
+                solution_parts.append(content)
+            elif execution.agent_name in ("Verifier", "Critic", "Code Reviewer"):
+                review_notes.append(f"[{execution.agent_name}] {content}")
+            elif execution.agent_name in ("Researcher",):
+                research_findings.append(content)
+
+        # Resolve conflicts: if multiple Executor outputs exist (from revisions),
+        # prefer the latest one as it incorporates review feedback
+        if len(solution_parts) > 1:
+            # The last executor output is the most refined
+            primary_solution = solution_parts[-1]
+        elif solution_parts:
+            primary_solution = solution_parts[0]
+        else:
+            # Fallback: use any available output
+            primary_solution = ""
+            for output in outputs:
+                if isinstance(output, str):
+                    primary_solution = output
+                    break
+                elif isinstance(output, dict):
+                    primary_solution = output.get("content", str(output))
+                    break
+
+        if not primary_solution:
+            return "I apologize, but I wasn't able to generate a response."
+
+        # Build the unified response
+        response_sections = [primary_solution]
+
+        # Append a brief review summary if there were notable findings
+        # (only for Tier 3+ where reviews are substantive)
+        if review_notes and session.current_tier >= TierLevel.DEEP:
+            # Summarize review insights rather than dumping raw notes
+            review_summary_parts = []
+            for note in review_notes:
+                # Only include notes that contain actionable feedback
+                lower_note = note.lower()
+                if any(kw in lower_note for kw in [
+                    "issue", "concern", "recommend", "suggest", "note",
+                    "warning", "error", "improve", "consider",
+                ]):
+                    review_summary_parts.append(note)
+            if review_summary_parts:
+                response_sections.append(
+                    "---\n**Review Notes:**\n" + "\n".join(review_summary_parts)
+                )
+
+        return "\n\n".join(response_sections)
 
     # ========================================================================
     # Input/Output Utilities

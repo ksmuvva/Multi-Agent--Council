@@ -6,6 +6,7 @@ confidence scoring, and fabrication risk assessment.
 """
 
 import re
+from datetime import datetime
 from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
 
@@ -331,7 +332,7 @@ class VerifierAgent:
         year_match = re.search(r'\b(\d{4})\b', claim)
         if year_match:
             year = int(year_match.group(1))
-            current_year = 2024
+            current_year = datetime.now().year
 
             # Plausibility check
             if year > current_year + 1:

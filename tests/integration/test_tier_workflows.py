@@ -10,8 +10,7 @@ Set MAS_RUN_INTEGRATION=true to run these tests with live API calls.
 
 import os
 import pytest
-import asyncio
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import patch, MagicMock
 from datetime import datetime
 
 from tests.conftest import (
@@ -20,6 +19,12 @@ from tests.conftest import (
     TestDataBuilder,
     MockSDKPatch,
 )
+
+from src.core.complexity import ComplexityClassifier, TierLevel
+from src.core.verdict import VerdictMatrix, VerdictAction
+from src.core.pipeline import PipelinePhase
+from src.session.persistence import SessionState, ChatMessage, AgentOutput
+from src.session.compaction import CompactionConfig, CompactionTrigger
 
 # Gate all integration tests behind MAS_RUN_INTEGRATION env var
 _run_integration = os.environ.get("MAS_RUN_INTEGRATION", "false").lower() == "true"
@@ -36,35 +41,27 @@ pytestmark = pytest.mark.skipif(
 class TestTier1Workflow:
     """Integration tests for Tier 1 (Direct) workflow."""
 
-    @pytest.mark.asyncio
-    async def test_tier1_direct_execution(self, mock_user_prompt):
-        """
-        Test Tier 1 workflow: Direct execution with minimal agents.
+    def test_tier1_classification(self):
+        """Test that simple queries are classified as Tier 1."""
+        classifier = ComplexityClassifier()
+        result = classifier.classify("What is 2 + 2?")
+        assert result.tier in (TierLevel.DIRECT, TierLevel.STANDARD)
 
-        Expected flow:
-        1. Tier classification returns Tier 1
-        2. Spawn Executor agent
-        3. Spawn Formatter agent
-        4. Return formatted result
-        """
-        # Simulate tier classification
-        tier = 1
-        assert tier == 1
+    def test_tier1_agent_set_is_minimal(self):
+        """Test that Tier 1 uses only Executor and Formatter (max 3 agents)."""
+        from src.core.pipeline import Pipeline
 
-        # Expected agents for Tier 1
-        expected_agents = ["Executor", "Formatter"]
-        assert len(expected_agents) <= 3  # Tier 1 should be minimal
+        pipeline = Pipeline(tier_level=TierLevel.DIRECT)
+        agents = pipeline._get_agents_for_phase(PipelinePhase.EXECUTION)
+        assert len(agents) <= 3
 
-    @pytest.mark.asyncio
-    async def test_tier1_executor_formatter_only(self):
-        """Test that Tier 1 only uses Executor and Formatter."""
-        agents = ["Executor", "Formatter"]
+    def test_tier1_does_not_include_council(self):
+        """Test that Tier 1 does not involve the Council."""
+        from src.core.pipeline import Pipeline
 
-        # Verify we have the right agents
-        assert "Executor" in agents
-        assert "Formatter" in agents
-        assert "Planner" not in agents  # Planner not needed for Tier 1
-        assert "Verifier" not in agents  # Verifier not needed for Tier 1
+        pipeline = Pipeline(tier_level=TierLevel.DIRECT)
+        council_agents = pipeline._get_council_agents()
+        assert len(council_agents) == 0
 
 
 # =============================================================================
@@ -74,46 +71,31 @@ class TestTier1Workflow:
 class TestTier2Workflow:
     """Integration tests for Tier 2 (Standard) workflow."""
 
-    @pytest.mark.asyncio
-    async def test_tier2_standard_pipeline(self):
-        """
-        Test Tier 2 workflow: Standard 7-agent pipeline.
+    def test_tier2_classification(self):
+        """Test that moderate queries are classified as Tier 2."""
+        classifier = ComplexityClassifier()
+        result = classifier.classify(
+            "Write a Python function to parse CSV files and validate the data"
+        )
+        assert result.tier.value >= TierLevel.STANDARD.value
 
-        Expected flow:
-        1. Tier classification returns Tier 2
-        2. Spawn: Analyst → Planner → (optional Clarifier) → Executor → Verifier → Formatter
-        3. Quality gate checks
-        4. Return formatted result
-        """
-        # Expected agents for Tier 2
-        expected_agents = [
-            "Analyst",
-            "Planner",
-            "Executor",
-            "Verifier",
-            "Formatter",
-        ]
+    def test_tier2_includes_analysis_phase(self):
+        """Test that Tier 2 includes analysis agents."""
+        from src.core.pipeline import Pipeline
 
-        # Verify we have the core agents
-        assert "Analyst" in expected_agents
-        assert "Executor" in expected_agents
-        assert "Verifier" in expected_agents
+        pipeline = Pipeline(tier_level=TierLevel.STANDARD)
+        agents = pipeline._get_agents_for_phase(PipelinePhase.ANALYSIS)
+        agent_names = [a if isinstance(a, str) else a.name for a in agents]
+        assert any("Analyst" in name for name in agent_names)
 
-    @pytest.mark.asyncio
-    async def test_tier2_clarifier_condition(self):
-        """Test that Clarifier is spawned for unclear requests."""
-        unclear_prompt = "Implement the thing with the stuff for the project"
+    def test_tier2_includes_verification(self):
+        """Test that Tier 2 includes Verifier."""
+        from src.core.pipeline import Pipeline
 
-        # Should trigger Clarifier
-        needs_clarification = True
-
-        # If clarification needed, add Clarifier to pipeline
-        agents = ["Analyst", "Planner"]
-        if needs_clarification:
-            agents.insert(1, "Clarifier")
-
-        assert "Clarifier" in agents
-        assert agents.index("Clarifier") == 1  # After Analyst, before Planner
+        pipeline = Pipeline(tier_level=TierLevel.STANDARD)
+        review_agents = pipeline._get_review_agents()
+        agent_names = [a if isinstance(a, str) else a.name for a in review_agents]
+        assert any("Verifier" in name for name in agent_names)
 
 
 # =============================================================================
@@ -123,42 +105,30 @@ class TestTier2Workflow:
 class TestTier3Workflow:
     """Integration tests for Tier 3 (Deep) workflow."""
 
-    @pytest.mark.asyncio
-    async def test_tier3_with_council(self):
-        """
-        Test Tier 3 workflow: Deep analysis with Council.
+    def test_tier3_classification(self):
+        """Test that complex domain queries are classified as Tier 3+."""
+        classifier = ComplexityClassifier()
+        result = classifier.classify(
+            "Design a secure microservices architecture for healthcare "
+            "with HIPAA compliance, multi-region deployment, and real-time "
+            "data pipeline for patient monitoring"
+        )
+        assert result.tier.value >= TierLevel.DEEP.value
 
-        Expected flow:
-        1. Tier classification returns Tier 3
-        2. Council Chair selects SMEs
-        3. Spawn SMEs for domain expertise
-        4. Full agent pipeline with Quality Arbiter
-        5. Ethics review
-        6. Return comprehensive result
-        """
-        # Tier 3 should include Council
-        has_council = True
-        assert has_council is True
+    def test_tier3_includes_council(self):
+        """Test that Tier 3 involves Council Chair."""
+        from src.core.pipeline import Pipeline
 
-    @pytest.mark.asyncio
-    async def test_tier3_sme_selection(self):
-        """Test SME selection for Tier 3 tasks."""
-        task = "Design a secure cloud architecture with IAM and compliance"
+        pipeline = Pipeline(tier_level=TierLevel.DEEP)
+        council_agents = pipeline._get_council_agents()
+        assert len(council_agents) >= 1
 
-        # Should trigger cloud architect and security SMEs
-        relevant_smes = [
-            "cloud_architect",
-            "security_analyst",
-        ]
+    def test_tier3_sme_selection_by_keywords(self):
+        """Test SME selection based on task keywords."""
+        from src.core.sme_registry import SME_REGISTRY, find_personas_by_keywords
 
-        assert len(relevant_smes) >= 1
-        assert "cloud_architect" in relevant_smes or "security_analyst" in relevant_smes
-
-    @pytest.mark.asyncio
-    async def test_tier3_quality_arbiter(self):
-        """Test Quality Arbiter involvement in Tier 3."""
-        has_quality_arbiter = True
-        assert has_quality_arbiter is True
+        results = find_personas_by_keywords(["security", "cloud", "architecture"])
+        assert len(results) >= 1
 
 
 # =============================================================================
@@ -168,40 +138,32 @@ class TestTier3Workflow:
 class TestTier4Workflow:
     """Integration tests for Tier 4 (Adversarial) workflow."""
 
-    @pytest.mark.asyncio
-    async def test_tier4_adversarial_mode(self):
-        """
-        Test Tier 4 workflow: Adversarial with full system.
+    def test_tier4_classification(self):
+        """Test that adversarial queries are classified as Tier 4."""
+        classifier = ComplexityClassifier()
+        result = classifier.classify(
+            "Conduct an adversarial security audit of a nuclear power plant "
+            "control system with safety-critical ethical considerations and "
+            "multi-stakeholder risk analysis"
+        )
+        assert result.tier.value >= TierLevel.DEEP.value
 
-        Expected flow:
-        1. Tier classification returns Tier 4
-        2. Full Council involvement
-        3. Self-play debate with Critic
-        4. Multiple SME perspectives
-        5. Final Reviewer quality gate
-        6. Only proceed if all quality gates pass
-        """
-        # Tier 4 is the most complex
-        tier = 4
-        assert tier == 4
+    def test_tier4_full_council(self):
+        """Test that Tier 4 activates the full Council."""
+        from src.core.pipeline import Pipeline
 
-        # Should have maximum agents
-        expected_min_agents = 13
-        assert tier == 4
+        pipeline = Pipeline(tier_level=TierLevel.ADVERSARIAL)
+        council_agents = pipeline._get_council_agents()
+        assert len(council_agents) >= 2
 
-    @pytest.mark.asyncio
-    async def test_tier4_self_play_debate(self):
-        """Test self-play debate in Tier 4."""
-        debate_enabled = True
+    def test_tier4_includes_critic(self):
+        """Test that Tier 4 includes the Critic agent."""
+        from src.core.pipeline import Pipeline
 
-        assert debate_enabled is True
-
-    @pytest.mark.asyncio
-    async def test_tier4_critic_involvement(self):
-        """Test Critic agent involvement in Tier 4."""
-        has_critic = True
-
-        assert has_critic is True
+        pipeline = Pipeline(tier_level=TierLevel.ADVERSARIAL)
+        review_agents = pipeline._get_review_agents()
+        agent_names = [a if isinstance(a, str) else a.name for a in review_agents]
+        assert any("Critic" in name for name in agent_names)
 
 
 # =============================================================================
@@ -211,129 +173,34 @@ class TestTier4Workflow:
 class TestVerdictMatrix:
     """Integration tests for the verdict matrix logic."""
 
-    def test_verdict_matrix_logic(self):
-        """
-        Test the verdict matrix decision logic.
+    def test_verdict_matrix_all_pass(self):
+        """Test (PASS, PASS) -> PROCEED_TO_FORMATTER."""
+        matrix = VerdictMatrix()
+        action = matrix.get_action(verifier_pass=True, critic_pass=True)
+        assert action == VerdictAction.PROCEED_TO_FORMATTER
 
-        Matrix:
-        - (PASS, PASS) → PROCEED_TO_FORMATTER
-        - (PASS, FAIL) → EXECUTOR_REVISE
-        - (FAIL, PASS) → RESEARCHER_REVERIFY
-        - (FAIL, FAIL) → FULL_REGENERATION
-        """
-        verdict_matrix = {
-            ("pass", "pass"): "PROCEED_TO_FORMATTER",
-            ("pass", "fail"): "EXECUTOR_REVISE",
-            ("fail", "pass"): "RESEARCHER_REVERIFY",
-            ("fail", "fail"): "FULL_REGENERATION",
-        }
+    def test_verdict_matrix_verifier_pass_critic_fail(self):
+        """Test (PASS, FAIL) -> EXECUTOR_REVISE."""
+        matrix = VerdictMatrix()
+        action = matrix.get_action(verifier_pass=True, critic_pass=False)
+        assert action == VerdictAction.EXECUTOR_REVISE
 
-        # Test each combination
-        assert verdict_matrix[("pass", "pass")] == "PROCEED_TO_FORMATTER"
-        assert verdict_matrix[("pass", "fail")] == "EXECUTOR_REVISE"
-        assert verdict_matrix[("fail", "pass")] == "RESEARCHER_REVERIFY"
-        assert verdict_matrix[("fail", "fail")] == "FULL_REGENERATION"
+    def test_verdict_matrix_verifier_fail_critic_pass(self):
+        """Test (FAIL, PASS) -> RESEARCHER_REVERIFY."""
+        matrix = VerdictMatrix()
+        action = matrix.get_action(verifier_pass=False, critic_pass=True)
+        assert action == VerdictAction.RESEARCHER_REVERIFY
 
-    @pytest.mark.asyncio
-    async def test_verdict_routing(self):
-        """Test that verdicts route to appropriate next steps."""
-        verdict = "PROCEED_TO_FORMATTER"
-        next_agent = "Formatter"
+    def test_verdict_matrix_all_fail(self):
+        """Test (FAIL, FAIL) -> FULL_REGENERATION."""
+        matrix = VerdictMatrix()
+        action = matrix.get_action(verifier_pass=False, critic_pass=False)
+        assert action == VerdictAction.FULL_REGENERATION
 
-        assert next_agent == "Formatter"
-
-        verdict = "EXECUTOR_REVISE"
-        next_agent = "Executor"
-
-        assert next_agent == "Executor"
-
-
-# =============================================================================
-# End-to-End Workflow Tests
-# =============================================================================
-
-class TestEndToEndWorkflows:
-    """End-to-end tests of complete workflows."""
-
-    @pytest.mark.asyncio
-    async def test_simple_query_e2e(self, mock_user_prompt):
-        """
-        Test end-to-end simple query (Tier 1).
-
-        Workflow:
-        User Query → Tier Classification → Executor → Formatter → Result
-        """
-        session_id = MOCK_SESSION_ID
-
-        # Simulate workflow
-        steps_completed = []
-
-        # Tier classification
-        tier = 1
-        steps_completed.append(f"Classified as Tier {tier}")
-
-        # Execute
-        steps_completed.append("Executor completed")
-        steps_completed.append("Formatter completed")
-
-        # Verify workflow completed
-        assert len(steps_completed) == 3
-
-    @pytest.mark.asyncio
-    async def test_complex_query_e2e(self):
-        """
-        Test end-to-end complex query (Tier 3).
-
-        Workflow:
-        User Query → Tier Classification → Council → SME Selection →
-        Analyst → Planner → Researcher → Executor → Verifier →
-        Quality Arbiter → Formatter → Result
-        """
-        prompt = "Design a microservices architecture for healthcare with HIPAA compliance"
-
-        # Simulate workflow
-        steps = [
-            "Tier classification",
-            "Council Chair: SME selection",
-            "SMEs spawned",
-            "Analyst completed",
-            "Planner completed",
-            "Researcher completed",
-            "Executor completed",
-            "Verifier completed",
-            "Quality Arbiter review",
-            "Formatter completed",
-        ]
-
-        # Should have more steps than Tier 1
-        assert len(steps) > 5
-
-    @pytest.mark.asyncio
-    async def test_quality_gate_failure_handling(self):
-        """Test handling of quality gate failures."""
-        # Simulate Verifier FAIL
-        verifier_verdict = "fail"
-        critic_verdict = "pass"
-
-        # Should route to RERESEARCHER_REVERIFY
-        if verifier_verdict == "fail" and critic_verdict == "pass":
-            next_action = "RESEARCHER_REVERIFY"
-
-        assert next_action == "RESEARCHER_REVERIFY"
-
-    @pytest.mark.asyncio
-    async def test_escalation_from_tier1_to_tier2(self):
-        """Test escalation from Tier 1 to higher tier."""
-        initial_tier = 1
-
-        # Simulate Analyst discovering complexity
-        actual_complexity = 2
-
-        if actual_complexity > initial_tier:
-            escalated_tier = actual_complexity
-
-        assert escalated_tier == 2
-        assert escalated_tier > initial_tier
+    def test_verdict_actions_are_distinct(self):
+        """Test that all 4 verdict actions are unique."""
+        actions = set(VerdictAction)
+        assert len(actions) == 4
 
 
 # =============================================================================
@@ -346,7 +213,6 @@ class TestSessionManagement:
     def test_session_creation(self, mock_session_id):
         """Test that sessions are created with unique IDs."""
         session_id = mock_session_id
-
         assert session_id is not None
         assert len(session_id) > 0
 
@@ -358,7 +224,6 @@ class TestSessionManagement:
             AgentOutput,
             create_session,
         )
-        from datetime import datetime
 
         session = create_session(
             session_id="test_session",
@@ -366,14 +231,12 @@ class TestSessionManagement:
             title="Test Session",
         )
 
-        # Add a message
         session.messages.append(ChatMessage(
             role="user",
             content="Test message",
             timestamp=datetime.now(),
         ))
 
-        # Add an agent output
         session.agent_outputs.append(AgentOutput(
             agent_name="Analyst",
             phase="analysis",
@@ -390,9 +253,7 @@ class TestSessionManagement:
     def test_session_serialization(self):
         """Test that sessions can be serialized to/from dict."""
         from src.session import SessionState, ChatMessage, AgentOutput
-        from datetime import datetime
 
-        # Create session with data
         session = SessionState(
             session_id="test_serialize",
             created_at=datetime.now(),
@@ -416,13 +277,11 @@ class TestSessionManagement:
             ],
         )
 
-        # Convert to dict
         data = session.to_dict()
         assert data["session_id"] == "test_serialize"
         assert len(data["messages"]) == 1
         assert len(data["agent_outputs"]) == 1
 
-        # Convert back from dict
         restored = SessionState.from_dict(data)
         assert restored.session_id == "test_serialize"
         assert len(restored.messages) == 1
@@ -430,8 +289,6 @@ class TestSessionManagement:
 
     def test_context_compaction_config(self):
         """Test context compaction configuration."""
-        from src.session import CompactionConfig, CompactionTrigger
-
         config = CompactionConfig()
 
         assert config.max_tokens == 100000
@@ -442,27 +299,10 @@ class TestSessionManagement:
 
     def test_compaction_trigger_enum(self):
         """Test compaction trigger enumeration."""
-        from src.session import CompactionTrigger
-
         assert CompactionTrigger.TOKEN_COUNT == "token_count"
         assert CompactionTrigger.MESSAGE_COUNT == "message_count"
         assert CompactionTrigger.SESSION_AGE == "session_age"
         assert CompactionTrigger.MANUAL == "manual"
-
-    @pytest.mark.asyncio
-    async def test_cross_agent_context_sharing(self):
-        """Test that context is shared between agents in a session."""
-        shared_context = {
-            "user_requirements": [],
-            "research_findings": {},
-            "agent_decisions": [],
-        }
-
-        # Analyst adds findings
-        shared_context["agent_decisions"].append("Analyst: Task is feasible")
-
-        # Planner should see Analyst's decision
-        assert len(shared_context["agent_decisions"]) > 0
 
 
 # =============================================================================
@@ -472,53 +312,30 @@ class TestSessionManagement:
 class TestErrorRecovery:
     """Tests for error recovery in workflows."""
 
-    @pytest.mark.asyncio
-    async def test_agent_timeout_recovery(self):
-        """Test recovery from agent timeout."""
-        agent_timeout = False
-        retry_count = 0
-        max_retries = 3
+    def test_budget_exceeded_detection(self):
+        """Test that budget exhaustion is properly detected."""
+        from src.utils.cost import BudgetState
 
-        # Simulate timeout and retry
-        while retry_count < max_retries:
-            if agent_timeout:
-                retry_count += 1
-                if retry_count >= max_retries:
-                    # Should escalate or degrade
-                    recovered = False
-                    break
-                # Retry logic here
-                agent_timeout = False
-                recovered = True
+        state = BudgetState(
+            spent_usd=12.0,
+            max_budget_usd=10.0,
+            utilization_pct=120.0,
+            is_warning=True,
+            is_exceeded=True,
+        )
 
-        assert retry_count <= max_retries
+        assert state.is_exceeded is True
+        assert state.utilization_pct > 100.0
 
-    @pytest.mark.asyncio
-    async def test_budget_exceeded_handling(self):
-        """Test handling when budget is exceeded."""
-        budget = 10.0
-        spent = 12.0
-
-        budget_exceeded = spent > budget
-
-        if budget_exceeded:
-            action = "stop_execution"
-
-        assert budget_exceeded is True
-        assert action == "stop_execution"
-
-    @pytest.mark.asyncio
-    async def test_schema_validation_recovery(self):
-        """Test recovery from schema validation failures."""
-        invalid_output = {"invalid": "data"}
-
-        # Should trigger regeneration
-        needs_regeneration = True
-
-        if needs_regeneration:
-            action = "regenerate"
-
-        assert action == "regenerate"
+    def test_complexity_escalation(self):
+        """Test that complexity can be escalated."""
+        classifier = ComplexityClassifier()
+        initial = classifier.classify("Simple task")
+        escalated = classifier.classify(
+            "Simple task that actually requires deep multi-domain analysis "
+            "with adversarial security review and ethical considerations"
+        )
+        assert escalated.tier.value >= initial.tier.value
 
 
 # =============================================================================
@@ -528,101 +345,23 @@ class TestErrorRecovery:
 class TestWorkflowPerformance:
     """Tests for workflow performance characteristics."""
 
-    def test_tier1_agent_count(self):
-        """Test that Tier 1 uses minimal agents."""
-        tier1_agents = ["Executor", "Formatter"]
+    def test_tier_agent_counts_are_ordered(self):
+        """Test that higher tiers use more agents."""
+        from src.core.pipeline import Pipeline
 
-        assert len(tier1_agents) <= 3
+        tier_agent_counts = {}
+        for tier in TierLevel:
+            pipeline = Pipeline(tier_level=tier)
+            all_agents = (
+                pipeline._get_agents_for_phase(PipelinePhase.ANALYSIS)
+                + pipeline._get_agents_for_phase(PipelinePhase.EXECUTION)
+                + pipeline._get_review_agents()
+                + pipeline._get_council_agents()
+            )
+            tier_agent_counts[tier] = len(all_agents)
 
-    def test_tier2_agent_count(self):
-        """Test that Tier 2 uses standard agent count."""
-        tier2_agents = [
-            "Analyst",
-            "Planner",
-            "Executor",
-            "Verifier",
-            "Formatter",
-        ]
-
-        assert 5 <= len(tier2_agents) <= 10
-
-    def test_tier3_agent_count(self):
-        """Test that Tier 3 uses extended agent count."""
-        tier3_agents = [
-            "CouncilChair",
-            "Analyst",
-            "Planner",
-            "Researcher",
-            "Executor",
-            "Verifier",
-            "QualityArbiter",
-            "Formatter",
-        ]
-
-        assert len(tier3_agents) >= 8
-
-    def test_tier4_agent_count(self):
-        """Test that Tier 4 uses maximum agent count."""
-        tier4_agents = [
-            "CouncilChair",
-            "QualityArbiter",
-            "EthicsAdvisor",
-            "Analyst",
-            "Planner",
-            "Clarifier",
-            "Researcher",
-            "Executor",
-            "Verifier",
-            "Critic",
-            "Reviewer",
-            "Formatter",
-        ]
-
-        assert len(tier4_agents) >= 10
-
-
-# =============================================================================
-# SME Interaction Tests
-# =============================================================================
-
-class TestSMEInteractions:
-    """Tests for SME persona interactions."""
-
-    @pytest.mark.asyncio
-    async def test_sme_advisor_mode(self):
-        """Test SME in advisor mode."""
-        sme_mode = "advisor"
-        provides_direct_output = False
-
-        if sme_mode == "advisor":
-            behavior = "review_and_recommend"
-
-        assert behavior == "review_and_recommend"
-        assert provides_direct_output is False
-
-    @pytest.mark.asyncio
-    async def test_sme_co_executor_mode(self):
-        """Test SME in co-executor mode."""
-        sme_mode = "co-executor"
-        provides_direct_output = True
-
-        if sme_mode == "co-executor":
-            behavior = "contribute_content"
-
-        assert behavior == "contribute_content"
-        assert provides_direct_output is True
-
-    @pytest.mark.asyncio
-    async def test_sme_debater_mode(self):
-        """Test SME in debater mode."""
-        sme_mode = "debater"
-        provides_perspective = True
-
-        if sme_mode == "debater":
-            behavior = "argue_position"
-
-        assert behavior == "argue_position"
-        assert provides_perspective is True
+        # Higher tiers should generally have more agents
+        assert tier_agent_counts[TierLevel.DIRECT] <= tier_agent_counts[TierLevel.ADVERSARIAL]
 
 
 # =============================================================================
@@ -632,37 +371,25 @@ class TestSMEInteractions:
 class TestEnsembleWorkflows:
     """Tests for ensemble pattern workflows."""
 
-    @pytest.mark.asyncio
-    async def test_architecture_review_board(self):
-        """Test Architecture Review Board ensemble."""
-        ensemble_name = "architecture_review_board"
+    def test_ensemble_registry_contains_all_patterns(self):
+        """Test that ensemble registry has all expected patterns."""
+        from src.core.ensemble import ENSEMBLE_REGISTRY
 
-        # Should include architecturally-focused agents
-        expected_agents = [
-            "Analyst",
-            "cloud_architect",  # SME
-            "security_analyst",  # SME
-            "Executor",
-            "Critic",
+        expected = [
+            "architecture_review_board",
+            "code_sprint",
+            "research_council",
+            "document_assembly",
+            "requirements_workshop",
         ]
+        for name in expected:
+            assert name in ENSEMBLE_REGISTRY, f"Missing ensemble: {name}"
 
-        assert "cloud_architect" in str(expected_agents)
+    def test_get_ensemble_returns_valid_instance(self):
+        """Test that get_ensemble creates proper instances."""
+        from src.core.ensemble import get_ensemble
 
-    @pytest.mark.asyncio
-    async def test_code_sprint_ensemble(self):
-        """Test Code Sprint ensemble."""
-        ensemble_name = "code_sprint"
-
-        # Should be focused on code generation
-        expected_focus = "code"
-        assert expected_focus == "code"
-
-    @pytest.mark.asyncio
-    async def test_ensemble_parallel_execution(self):
-        """Test that ensembles can execute agents in parallel where appropriate."""
-        parallel_steps = [
-            ["Researcher_A", "Researcher_B"],  # Can run in parallel
-            ["Executor"],  # Must wait for research
-        ]
-
-        assert len(parallel_steps[0]) > 1  # First step has parallel agents
+        ensemble = get_ensemble("architecture_review_board")
+        assert ensemble is not None
+        assert hasattr(ensemble, "execute")
+        assert hasattr(ensemble, "agents")

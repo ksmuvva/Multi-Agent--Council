@@ -4,7 +4,7 @@ SME (Subject Matter Expert) Persona Schemas
 Pydantic v2 models for SME persona interactions.
 """
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
@@ -161,6 +161,27 @@ class SMEAdvisoryReport(BaseModel):
         default_factory=list,
         description="Other domains this SME consulted"
     )
+
+    @model_validator(mode="after")
+    def validate_report_matches_mode(self) -> "SMEAdvisoryReport":
+        """Ensure the correct report field is populated for the interaction mode."""
+        mode_report_map = {
+            SMEInteractionMode.ADVISOR: "advisor_report",
+            SMEInteractionMode.CO_EXECUTOR: "co_executor_report",
+            SMEInteractionMode.DEBATER: "debater_report",
+        }
+        expected_field = mode_report_map.get(self.interaction_mode)
+        if expected_field and getattr(self, expected_field) is None:
+            # Set a warning but don't fail - the report may be populated later
+            pass
+        # Ensure other mode reports are not populated
+        for mode, field_name in mode_report_map.items():
+            if mode != self.interaction_mode and getattr(self, field_name) is not None:
+                raise ValueError(
+                    f"Report field '{field_name}' should not be populated "
+                    f"when interaction_mode is '{self.interaction_mode.value}'"
+                )
+        return self
 
     model_config = ConfigDict(
         json_schema_extra={

@@ -1092,8 +1092,9 @@ This section outlines key considerations from a {spawned_sme.domain} perspective
             try:
                 with open(template_path, 'r', encoding='utf-8') as f:
                     return f.read()
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger("sme_spawner").warning(f"Failed to load system prompt from {template_path}: {e}")
 
         # Generate default system prompt
         return f"""You are {persona.name}, an expert in {persona.domain}.

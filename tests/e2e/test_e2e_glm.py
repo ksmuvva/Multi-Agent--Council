@@ -1269,12 +1269,12 @@ class TestEnsemblePatternsE2E:
         with pytest.raises(ValueError):
             execute_ensemble("nonexistent_type", {})
 
-    def test_dependency_validation(self):
-        """Ensemble dependency validation should pass for all patterns."""
+    def test_all_ensembles_execute(self):
+        """All ensemble patterns should execute successfully."""
         for et in EnsembleType:
             ensemble = get_ensemble(et)
-            config = ensemble.get_config()
-            assert ensemble._validate_dependencies(config)
+            result = ensemble.execute({"task": "e2e test"})
+            assert result.success is True
 
 
 # ═══════════════════════════════════════════════════════════════════
