@@ -7,7 +7,7 @@ Pydantic v2 models for the Strategic Council agents:
 - Ethics & Safety Advisor
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
@@ -110,6 +110,17 @@ class QualityStandard(BaseModel):
         ...,
         description="Quality acceptance criteria"
     )
+    @model_validator(mode="after")
+    def validate_criteria_weights(self) -> "QualityStandard":
+        """Ensure quality criteria weights sum to approximately 1.0."""
+        if self.quality_criteria:
+            total_weight = sum(c.weight for c in self.quality_criteria)
+            if not (0.95 <= total_weight <= 1.05):
+                raise ValueError(
+                    f"Quality criteria weights must sum to ~1.0, got {total_weight:.2f}"
+                )
+        return self
+
     overall_pass_threshold: float = Field(
         ...,
         ge=0.0,

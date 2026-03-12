@@ -144,8 +144,9 @@ def _get_output_schema(agent_name: str) -> Optional[Dict[str, Any]]:
         model_class = getattr(schemas, model_name, None)
         if model_class and hasattr(model_class, "model_json_schema"):
             return model_class.model_json_schema()
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger("sdk_integration").debug(f"Failed to load schema '{model_name}': {e}")
 
     return None
 
@@ -415,7 +416,12 @@ def _simulate_response(
     Simulate a response when no API is available.
 
     This is the fallback for development/testing without API keys.
+    WARNING: Not for production use - returns simulated data.
     """
+    import logging
+    logging.getLogger("sdk_integration").warning(
+        f"Using simulated response - no API available for agent '{sdk_kwargs.get('name', 'Agent')}'"
+    )
     agent_name = sdk_kwargs.get("name", "Agent")
     return {
         "output": f"[Simulated output from {agent_name}] Processed: {input_data[:200]}...",

@@ -391,7 +391,7 @@ def cost_estimate(
 
     OUTPUT_COSTS = {
         "claude-3-5-opus-20240507": 75.0,
-        "claude-5-5-sonnet-20241022": 15.0,
+        "claude-3-5-sonnet-20241022": 15.0,
         "claude-3-5-haiku-20250101": 1.25,
     }
 

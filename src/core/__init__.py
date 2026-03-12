@@ -101,11 +101,6 @@ from .ensemble import (
     get_all_ensembles,
     suggest_ensemble,
     execute_ensemble,
-    create_architecture_review,
-    create_code_sprint,
-    create_research_council,
-    create_document_assembly,
-    create_requirements_workshop,
 )
 
 # =============================================================================
@@ -190,11 +185,6 @@ __all__ = [
     "get_all_ensembles",
     "suggest_ensemble",
     "execute_ensemble",
-    "create_architecture_review",
-    "create_code_sprint",
-    "create_research_council",
-    "create_document_assembly",
-    "create_requirements_workshop",
     # SDK Integration
     "ClaudeAgentOptions",
     "PermissionMode",

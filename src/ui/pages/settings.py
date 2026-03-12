@@ -5,6 +5,7 @@ Configure system behavior, API keys, budgets, and UI preferences.
 """
 
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -50,8 +51,16 @@ def render_api_key_section() -> None:
     if anthropic_key and st.button("🧪 Test Connection"):
         with st.spinner("Testing connection..."):
             try:
-                # TODO: Actual API test
+                import anthropic
+                client = anthropic.Anthropic(api_key=anthropic_key)
+                client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=10,
+                    messages=[{"role": "user", "content": "ping"}],
+                )
                 st.success("✅ Connection successful!")
+            except ImportError:
+                st.warning("⚠️ anthropic package not installed. Cannot test connection.")
             except Exception as e:
                 st.error(f"❌ Connection failed: {e}")
 
@@ -414,7 +423,7 @@ def render_knowledge_section() -> None:
         with col3:
             recent = sum(
                 1 for e in entries
-                if (e.created_at - datetime.now()).days <= 7
+                if (datetime.now() - e.created_at).days <= 7
             )
             st.metric("Last 7 Days", recent)
 

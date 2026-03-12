@@ -233,7 +233,7 @@ class EventEmitter:
                 subscription.callback(event)
             except Exception as e:
                 # Log error but don't stop other subscribers
-                print(f"Error in subscriber callback: {e}")
+                self._logger.error(f"Error in subscriber callback: {e}")
 
     def get_event_history(
         self,
@@ -532,7 +532,7 @@ class EventStreamer:
     def __init__(self, emitter: EventEmitter):
         self.emitter = emitter
         self._streams: Dict[str, List[Event]] = {}
-        self._stream_subscribers: Dict[str, Set[str]] = set()
+        self._stream_subscribers: Dict[str, Set[str]] = {}
 
     def create_stream(
         self,

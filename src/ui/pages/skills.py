@@ -66,9 +66,8 @@ def discover_skills() -> List[Dict[str, Any]]:
                             "tags": metadata.get("tags", []),
                             "path": str(skill_path),
                         })
-                except Exception as e:
-                    # Skip invalid skills
-                    pass
+                except Exception:
+                    continue
 
     return skills
 

@@ -5,7 +5,6 @@ Decomposes user requests into structured requirements using
 the TaskIntelligenceReport schema.
 """
 
-import os
 import re
 from typing import List, Dict, Any, Optional
 from pathlib import Path

@@ -284,7 +284,7 @@ def render_sme_browser() -> None:
 
         # Mode filter
         if mode_filter:
-            persona_modes = [m.value for m in persona.interaction_modes]
+            persona_modes = [m if isinstance(m, str) else m.value for m in persona.interaction_modes]
             if not any(m in mode_filter for m in persona_modes):
                 continue
 

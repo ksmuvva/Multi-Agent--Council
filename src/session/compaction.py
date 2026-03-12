@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict
 
-from src.utils.logging import get_logger, bind_session
+from src.utils.logging import get_logger
 from .persistence import SessionState, ChatMessage, AgentOutput
 
 
@@ -450,8 +450,9 @@ class ContextCompactor:
                         reorientation_parts.append(line)
                     elif "Re-orientation" in line or "re-read" in line.lower():
                         reorientation_parts.append(line)
-        except Exception:
-            pass
+        except Exception as e:
+            logger = get_logger("compaction")
+            logger.warning(f"Failed to read CLAUDE.md for re-orientation: {e}")
 
         # Add session state
         reorientation_parts.extend([

@@ -28,7 +28,7 @@ class AgentOutput:
     tier: int
     content: str
     structured_data: Optional[Dict[str, Any]] = None
-    timestamp: datetime = None
+    timestamp: Optional[datetime] = None
     duration_seconds: float = 0.0
     token_usage: Optional[Dict[str, int]] = None
     status: str = "completed"  # completed, failed, timeout

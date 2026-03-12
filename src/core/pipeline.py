@@ -308,13 +308,13 @@ class ExecutionPipeline:
             ]
         return []
 
-    def _get_review_agents(self) -> List[str]:
+    def _get_review_agents(self, context: Optional[Dict[str, Any]] = None) -> List[str]:
         """Get review agents (can run in parallel)."""
         agents = ["Verifier", "Critic"]
 
-        # Add Code Reviewer if code was generated
-        # (This would be determined from context)
-        # agents.append("Code Reviewer")
+        # Add Code Reviewer if code was generated in the solution phase
+        if context and context.get("code_generated", False):
+            agents.append("Code Reviewer")
 
         return agents
 
@@ -359,15 +359,86 @@ class ExecutionPipeline:
         context: Dict[str, Any]
     ) -> None:
         """Handle a verdict matrix action."""
+        import logging
+        logger = logging.getLogger(__name__)
+
         if action == MatrixAction.RESEARCHER_REVERIFY:
-            # Loop back to research
-            pass
+            logger.info("Verdict action: RESEARCHER_REVERIFY - re-running research phase on flagged claims")
+            # Collect flagged claims from the review phase results
+            flagged_claims = self._extract_flagged_claims()
+            context["flagged_claims"] = flagged_claims
+            context["reverify_mode"] = True
+
+            # Re-execute the research phase to gather new evidence
+            if Phase.PHASE_4_RESEARCH in self.phase_results:
+                # Remove previous research result so it can be re-run
+                del self.phase_results[Phase.PHASE_4_RESEARCH]
+                if Phase.PHASE_4_RESEARCH in self.state.completed_phases:
+                    self.state.completed_phases.remove(Phase.PHASE_4_RESEARCH)
+
+            # Re-run research phase with the agent_executor stored in context
+            agent_executor = context.get("agent_executor")
+            if agent_executor:
+                research_result = self.execute_phase(
+                    Phase.PHASE_4_RESEARCH, agent_executor, context
+                )
+                logger.info(
+                    f"Research re-verification complete: status={research_result.status}"
+                )
+            else:
+                logger.warning("No agent_executor in context; cannot re-run research phase")
+
         elif action == MatrixAction.FULL_REGENERATION:
-            # Loop back to solution generation
-            pass
+            logger.info("Verdict action: FULL_REGENERATION - resetting to solution generation phase")
+            # Incorporate feedback from the failed review into context
+            review_result = self.phase_results.get(Phase.PHASE_6_REVIEW)
+            if review_result:
+                feedback = [
+                    r.output for r in review_result.agent_results
+                    if r.output and r.status != "error"
+                ]
+                context["regeneration_feedback"] = feedback
+                context["regeneration_cycle"] = self.state.revision_cycle + 1
+
+            # Remove previous solution and review results to allow re-execution
+            for phase_to_reset in [Phase.PHASE_5_SOLUTION_GENERATION, Phase.PHASE_6_REVIEW]:
+                if phase_to_reset in self.phase_results:
+                    del self.phase_results[phase_to_reset]
+                if phase_to_reset in self.state.completed_phases:
+                    self.state.completed_phases.remove(phase_to_reset)
+
+            # Re-run solution generation
+            agent_executor = context.get("agent_executor")
+            if agent_executor:
+                gen_result = self.execute_phase(
+                    Phase.PHASE_5_SOLUTION_GENERATION, agent_executor, context
+                )
+                logger.info(
+                    f"Full regeneration complete: status={gen_result.status}"
+                )
+            else:
+                logger.warning("No agent_executor in context; cannot regenerate solution")
+
         elif action == MatrixAction.QUALITY_ARBITER:
-            # Invoke Quality Arbiter
+            logger.info("Verdict action: QUALITY_ARBITER - invoking arbiter for dispute resolution")
             self._invoke_quality_arbiter(context)
+
+    def _extract_flagged_claims(self) -> List[str]:
+        """Extract flagged claims from the review phase results."""
+        flagged = []
+        review_result = self.phase_results.get(Phase.PHASE_6_REVIEW)
+        if review_result:
+            for agent_result in review_result.agent_results:
+                if agent_result.output and isinstance(agent_result.output, dict):
+                    # Collect flagged claims from verifier and critic outputs
+                    claims = agent_result.output.get("flagged_claims", [])
+                    if claims:
+                        flagged.extend(claims)
+                    # Also check for issues/challenges as flagged items
+                    issues = agent_result.output.get("issues", [])
+                    if issues:
+                        flagged.extend(issues)
+        return flagged
 
     # ========================================================================
     # Debate Protocol
@@ -430,10 +501,69 @@ class ExecutionPipeline:
         # Critical failures stop the pipeline
         return False
 
-    def _invoke_quality_arbiter(self, context: Dict[str, Any]) -> None:
-        """Invoke Quality Arbiter for dispute resolution."""
-        # This would trigger the arbiter agent
-        context["require_arbiter"] = True
+    def _invoke_quality_arbiter(self, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Invoke Quality Arbiter for dispute resolution.
+
+        Collects critic and reviewer outputs, formulates the arbitration
+        request, and invokes the arbiter (council chair) with the conflict data.
+
+        Returns:
+            The arbiter's decision dict, or None if invocation is not possible.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # Collect critic and verifier/reviewer outputs from the review phase
+        review_result = self.phase_results.get(Phase.PHASE_6_REVIEW)
+        critic_output = None
+        verifier_output = None
+
+        if review_result:
+            for agent_result in review_result.agent_results:
+                if agent_result.agent_name == "Critic":
+                    critic_output = agent_result.output
+                elif agent_result.agent_name == "Verifier":
+                    verifier_output = agent_result.output
+
+        # Formulate the arbitration request with full conflict data
+        arbitration_request = {
+            "type": "quality_arbitration",
+            "verifier_output": verifier_output,
+            "critic_output": critic_output,
+            "revision_cycle": self.state.revision_cycle,
+            "tier_level": str(self.tier_level),
+            "user_prompt": context.get("user_prompt", ""),
+            "solution_output": self.phase_results.get(
+                Phase.PHASE_5_SOLUTION_GENERATION, PhaseResult(
+                    phase=Phase.PHASE_5_SOLUTION_GENERATION,
+                    status=PhaseStatus.PENDING,
+                    agent_results=[],
+                    duration_ms=0,
+                )
+            ).output,
+        }
+
+        # Invoke arbiter via agent_executor if available
+        agent_executor = context.get("agent_executor")
+        if agent_executor:
+            logger.info("Invoking Quality Arbiter with conflict data")
+            arbiter_result = agent_executor(
+                agent_name="Quality Arbiter",
+                phase=Phase.PHASE_6_REVIEW,
+                context={**context, "arbitration_request": arbitration_request},
+            )
+            logger.info(f"Quality Arbiter decision: status={arbiter_result.status}")
+
+            # Store the arbiter's decision in context for downstream use
+            context["arbiter_decision"] = arbiter_result.output
+            context["arbiter_invoked"] = True
+            return arbiter_result.output
+        else:
+            # Fallback: flag that arbiter is required for external handling
+            logger.warning("No agent_executor in context; flagging arbiter requirement")
+            context["require_arbiter"] = True
+            context["arbitration_request"] = arbitration_request
+            return None
 
 
 class PipelineBuilder:

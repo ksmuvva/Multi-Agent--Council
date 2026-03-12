@@ -220,12 +220,18 @@ class DebateProtocol:
         Returns:
             DebateRound with results
         """
-        # Simulate agreement scores (in real system, these would come from agents)
-        executor_agreement = 0.9  # Executor generally agrees with their own solution
-        critic_agreement = 0.4 if critic_challenges else 0.7
-        verifier_agreement = 0.7 if verifier_checks else 0.8
+        # Calculate agreement scores by analyzing actual content from each agent
+        executor_agreement = self._score_executor_agreement(
+            executor_position, critic_challenges, verifier_checks
+        )
+        critic_agreement = self._score_critic_agreement(
+            executor_position, critic_challenges
+        )
+        verifier_agreement = self._score_verifier_agreement(
+            executor_position, verifier_checks
+        )
         sme_agreements = {
-            sme: 0.6 + (0.1 if args else 0.0)
+            sme: self._score_sme_agreement(executor_position, args)
             for sme, args in sme_arguments.items()
         }
 
@@ -249,6 +255,141 @@ class DebateProtocol:
 
         self.rounds.append(debate_round)
         return debate_round
+
+    # ========================================================================
+    # Agreement Scoring
+    # ========================================================================
+
+    @staticmethod
+    def _text_overlap_score(text_a: str, text_b: str) -> float:
+        """
+        Calculate a normalized overlap score between two texts based on
+        shared words (Jaccard similarity on word tokens).
+
+        Returns a score between 0.0 and 1.0.
+        """
+        if not text_a or not text_b:
+            return 0.0
+        words_a = set(text_a.lower().split())
+        words_b = set(text_b.lower().split())
+        if not words_a or not words_b:
+            return 0.0
+        intersection = words_a & words_b
+        union = words_a | words_b
+        return len(intersection) / len(union)
+
+    @staticmethod
+    def _contains_disagreement_signals(text: str) -> float:
+        """
+        Detect disagreement language in text.
+
+        Returns a penalty between 0.0 (no disagreement) and 0.5
+        (strong disagreement signals).
+        """
+        if not text:
+            return 0.0
+        lower = text.lower()
+        strong_signals = ["incorrect", "wrong", "invalid", "reject", "disagree", "fail"]
+        mild_signals = ["however", "but", "concern", "issue", "unclear", "questionable"]
+        penalty = 0.0
+        for word in strong_signals:
+            if word in lower:
+                penalty += 0.1
+        for word in mild_signals:
+            if word in lower:
+                penalty += 0.05
+        return min(penalty, 0.5)
+
+    def _score_executor_agreement(
+        self,
+        executor_position: str,
+        critic_challenges: List[str],
+        verifier_checks: List[str],
+    ) -> float:
+        """
+        Score executor agreement: high baseline since executors defend
+        their own solution, reduced by the volume and severity of
+        challenges and verification issues raised.
+        """
+        base_score = 0.95
+        # Reduce score based on number and content of challenges
+        if critic_challenges:
+            challenge_text = " ".join(critic_challenges)
+            disagreement = self._contains_disagreement_signals(challenge_text)
+            volume_penalty = min(len(critic_challenges) * 0.05, 0.2)
+            base_score -= (disagreement + volume_penalty)
+        if verifier_checks:
+            check_text = " ".join(verifier_checks)
+            disagreement = self._contains_disagreement_signals(check_text)
+            base_score -= disagreement * 0.5
+        return max(0.0, min(1.0, round(base_score, 2)))
+
+    def _score_critic_agreement(
+        self,
+        executor_position: str,
+        critic_challenges: List[str],
+    ) -> float:
+        """
+        Score critic agreement: starts neutral and adjusts based on
+        content overlap with the executor position and the severity
+        of challenges raised.
+        """
+        if not critic_challenges:
+            # No challenges means implicit agreement
+            return 0.75
+
+        challenge_text = " ".join(critic_challenges)
+        # Higher text overlap with executor = more agreement
+        overlap = self._text_overlap_score(executor_position, challenge_text)
+        # Disagreement signals reduce agreement
+        disagreement = self._contains_disagreement_signals(challenge_text)
+        # Volume of challenges reduces agreement
+        volume_factor = min(len(critic_challenges) * 0.08, 0.3)
+
+        score = 0.5 + (overlap * 0.3) - disagreement - volume_factor
+        return max(0.0, min(1.0, round(score, 2)))
+
+    def _score_verifier_agreement(
+        self,
+        executor_position: str,
+        verifier_checks: List[str],
+    ) -> float:
+        """
+        Score verifier agreement: based on how well the executor
+        position aligns with verification checks and whether checks
+        indicate problems.
+        """
+        if not verifier_checks:
+            # No checks filed means the verifier found no issues
+            return 0.85
+
+        check_text = " ".join(verifier_checks)
+        overlap = self._text_overlap_score(executor_position, check_text)
+        disagreement = self._contains_disagreement_signals(check_text)
+        volume_factor = min(len(verifier_checks) * 0.06, 0.25)
+
+        score = 0.6 + (overlap * 0.25) - disagreement - volume_factor
+        return max(0.0, min(1.0, round(score, 2)))
+
+    def _score_sme_agreement(
+        self,
+        executor_position: str,
+        sme_argument: str,
+    ) -> float:
+        """
+        Score SME agreement: based on semantic overlap between the
+        SME's argument and the executor position, adjusted for
+        disagreement signals.
+        """
+        if not sme_argument:
+            # No argument means the SME abstained; treat as neutral
+            return 0.5
+
+        overlap = self._text_overlap_score(executor_position, sme_argument)
+        disagreement = self._contains_disagreement_signals(sme_argument)
+
+        score = 0.5 + (overlap * 0.4) - disagreement
+        return max(0.0, min(1.0, round(score, 2)))
 
     def get_outcome(self) -> DebateOutcome:
         """

@@ -385,9 +385,12 @@ class CostTracker:
         if not session:
             return
 
-        # Get max budget from session state or default
-        # In real implementation, this would come from session config
-        max_budget = 10.0  # Default
+        # Get max budget from settings configuration
+        try:
+            from src.config.settings import get_settings
+            max_budget = get_settings().max_budget
+        except Exception:
+            max_budget = 5.0
 
         state = self.get_budget_state(session_id, max_budget)
 

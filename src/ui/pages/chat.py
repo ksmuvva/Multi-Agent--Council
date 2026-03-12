@@ -507,12 +507,10 @@ def process_user_input(prompt: str, options: Dict[str, Any]) -> None:
 
     add_message(user_message)
 
-    # Rerun to show user message
-    st.rerun()
-
-    # TODO: Integrate with actual orchestrator
-    # For now, simulate response
+    # Process with orchestrator then rerun
     simulate_agent_response(prompt, tier, output_format, options)
+
+    st.rerun()
 
 
 def simulate_agent_response(

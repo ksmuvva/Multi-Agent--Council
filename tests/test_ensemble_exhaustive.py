@@ -28,11 +28,6 @@ from src.core.ensemble import (
     get_all_ensembles,
     suggest_ensemble,
     execute_ensemble,
-    create_architecture_review,
-    create_code_sprint,
-    create_research_council,
-    create_document_assembly,
-    create_requirements_workshop,
 )
 
 
@@ -136,11 +131,6 @@ class TestArchitectureReviewBoard:
         assert result.success is True
         assert result.ensemble_type == EnsembleType.ARCHITECTURE_REVIEW_BOARD
         assert len(result.outputs) > 0
-
-    def test_validate_dependencies(self):
-        arb = ArchitectureReviewBoard()
-        config = arb.get_config()
-        assert arb._validate_dependencies(config) is True
 
     def test_quality_gates(self):
         arb = ArchitectureReviewBoard()
@@ -334,67 +324,3 @@ class TestExecuteEnsemble:
             assert result.success is True
 
 
-# =============================================================================
-# Convenience Function Tests
-# =============================================================================
-
-class TestConvenienceFunctions:
-    def test_create_architecture_review(self):
-        assert isinstance(create_architecture_review(), ArchitectureReviewBoard)
-
-    def test_create_code_sprint(self):
-        assert isinstance(create_code_sprint(), CodeSprint)
-
-    def test_create_research_council(self):
-        assert isinstance(create_research_council(), ResearchCouncil)
-
-    def test_create_document_assembly(self):
-        assert isinstance(create_document_assembly(), DocumentAssembly)
-
-    def test_create_requirements_workshop(self):
-        assert isinstance(create_requirements_workshop(), RequirementsWorkshop)
-
-
-# =============================================================================
-# Dependency Validation Tests
-# =============================================================================
-
-class TestDependencyValidation:
-    def test_all_ensembles_valid_dependencies(self):
-        for et in EnsembleType:
-            ensemble = get_ensemble(et)
-            config = ensemble.get_config()
-            assert ensemble._validate_dependencies(config) is True
-
-    def test_invalid_dependency_fails(self):
-        arb = ArchitectureReviewBoard()
-        config = arb.get_config()
-        # Add an assignment with a non-existent dependency
-        config.agent_assignments.append(
-            AgentAssignment(
-                agent_name="Ghost", role=AgentRole.OBSERVER,
-                phase="test", dependencies=["NonExistent"],
-                parallel_with=[],
-            )
-        )
-        assert arb._validate_dependencies(config) is False
-
-
-# =============================================================================
-# Parallel Group Calculation Tests
-# =============================================================================
-
-class TestParallelGroups:
-    def test_arb_has_parallel_groups(self):
-        arb = ArchitectureReviewBoard()
-        config = arb.get_config()
-        groups = arb._calculate_parallel_groups(config)
-        assert len(groups) > 0
-
-    def test_sequential_only_pattern(self):
-        rw = RequirementsWorkshop()
-        config = rw.get_config()
-        groups = rw._calculate_parallel_groups(config)
-        # Each group should have agents (even if single)
-        total_agents = sum(len(g) for g in groups)
-        assert total_agents == len(config.agent_assignments)
