@@ -63,6 +63,24 @@ VERDICT_MATRIX = {
 }
 
 
+# Alias for backwards-compatible imports
+VerdictAction = MatrixAction
+
+
+class VerdictMatrix:
+    """
+    Class-based wrapper for the verdict matrix.
+
+    Provides an object-oriented interface for evaluating the verdict matrix.
+    """
+
+    def get_action(self, verifier_pass: bool, critic_pass: bool) -> MatrixAction:
+        """Get the action for a given pair of verdicts."""
+        v = Verdict.PASS if verifier_pass else Verdict.FAIL
+        c = Verdict.PASS if critic_pass else Verdict.FAIL
+        return VERDICT_MATRIX[(v, c)]
+
+
 def evaluate_verdict_matrix(
     verifier_verdict: Verdict,
     critic_verdict: Verdict,

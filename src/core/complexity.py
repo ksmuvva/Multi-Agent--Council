@@ -197,6 +197,22 @@ ESCALATION_KEYWORDS = [
 ]
 
 
+class ComplexityClassifier:
+    """
+    Class-based wrapper for complexity classification.
+
+    Provides an object-oriented interface to the classify_complexity function.
+    """
+
+    def classify(
+        self,
+        user_prompt: str,
+        analyst_report: Optional[Dict[str, Any]] = None,
+    ) -> TierClassification:
+        """Classify the complexity of a user prompt into a tier level."""
+        return classify_complexity(user_prompt, analyst_report)
+
+
 def classify_complexity(
     user_prompt: str,
     analyst_report: Optional[Dict[str, Any]] = None

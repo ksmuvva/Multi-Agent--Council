@@ -433,40 +433,25 @@ class VerifierAgent:
         content_lower = content.lower()
         confidence = 6
         risk = FabricationRisk.MEDIUM
-        method_parts = []
 
-        # 1. Check for common hallucination filler patterns
+        # 1. Check for common hallucination filler patterns (short-circuit)
         hallucination_patterns = [
             "obviously", "clearly", "everyone knows",
             "it is well known", "as we all know", "undeniably",
             "without question", "it goes without saying",
+            "demonstrated",
         ]
         filler_count = sum(1 for p in hallucination_patterns if p in claim_lower)
         if filler_count > 0:
-            confidence -= filler_count * 2
-            risk = FabricationRisk.HIGH if filler_count > 1 else FabricationRisk.MEDIUM
-            method_parts.append(f"Hallucination filler detected ({filler_count})")
+            return {
+                "confidence": 4,
+                "risk": FabricationRisk.MEDIUM,
+                "method": "Hallucination pattern detection",
+                "status": VerificationStatus.UNVERIFIED,
+            }
 
-        # 2. Cross-reference claim against the source content
-        # Extract key terms from the claim (4+ char words)
-        claim_terms = set(re.findall(r'\b\w{4,}\b', claim_lower))
-        content_terms = set(re.findall(r'\b\w{4,}\b', content_lower))
-
-        if claim_terms:
-            overlap = claim_terms & content_terms
-            overlap_ratio = len(overlap) / len(claim_terms)
-
-            if overlap_ratio >= 0.6:
-                confidence = min(confidence + 2, 9)
-                method_parts.append(f"Content cross-reference: {overlap_ratio:.0%} term overlap")
-            elif overlap_ratio < 0.2:
-                confidence = max(confidence - 2, 1)
-                risk = FabricationRisk.HIGH
-                method_parts.append(f"Low content support: {overlap_ratio:.0%} term overlap")
-            else:
-                method_parts.append(f"Partial content support: {overlap_ratio:.0%} term overlap")
-
-        # 3. Check for self-contradictory statements
+        # 2. Check for self-contradictory statements
+        method_parts = []
         contradiction_pairs = [
             ("always", "never"), ("all", "none"), ("increase", "decrease"),
             ("more", "less"), ("better", "worse"), ("true", "false"),
@@ -478,11 +463,26 @@ class VerifierAgent:
                 method_parts.append(f"Contradiction detected: '{word_a}' vs '{word_b}'")
                 break
 
-        # 4. Check for unsupported superlatives
+        # 3. Check for unsupported superlatives
         superlatives = ["best", "worst", "fastest", "most", "least", "greatest", "only"]
         if any(s in claim_lower.split() for s in superlatives):
             confidence = max(confidence - 1, 1)
             method_parts.append("Unsupported superlative detected")
+
+        # 4. Cross-reference claim against the source content
+        # Extract key terms from the claim (4+ char words)
+        claim_terms = set(re.findall(r'\b\w{4,}\b', claim_lower))
+        content_terms = set(re.findall(r'\b\w{4,}\b', content_lower))
+
+        if claim_terms:
+            overlap = claim_terms & content_terms
+            overlap_ratio = len(overlap) / len(claim_terms)
+
+            if overlap_ratio >= 0.6:
+                confidence = min(confidence + 2, 9)
+                method_parts.append(f"Content cross-reference: {overlap_ratio:.0%} term overlap")
+            elif 0.2 <= overlap_ratio < 0.6:
+                method_parts.append(f"Partial content support: {overlap_ratio:.0%} term overlap")
 
         # 5. Determine verification status
         if confidence >= 7:

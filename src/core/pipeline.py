@@ -27,6 +27,14 @@ class Phase(str, Enum):
     PHASE_7_REVISION = "Phase 7: Revision"
     PHASE_8_FINAL_REVIEW_FORMATTING = "Phase 8: Final Review + Formatting"
 
+    # Aliases used by integration tests
+    ANALYSIS = PHASE_1_TASK_INTELLIGENCE
+    EXECUTION = PHASE_5_SOLUTION_GENERATION
+
+
+# Backwards-compatible alias
+PipelinePhase = Phase
+
 
 class PhaseStatus(str, Enum):
     """Status of a pipeline phase."""
@@ -257,7 +265,7 @@ class ExecutionPipeline:
                 Phase.PHASE_8_FINAL_REVIEW_FORMATTING
             ]
 
-        # Tier 2 skips Council and Revision (Research runs for Tier 2+)
+        # Tier 2 skips Council and Revision (Research runs for Tier 2)
         if self.tier_level == TierLevel.STANDARD:
             return phase in [
                 Phase.PHASE_2_COUNCIL_CONSULTATION,

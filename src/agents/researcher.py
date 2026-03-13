@@ -745,7 +745,7 @@ class ResearcherAgent:
                 )
                 if is_novel:
                     integrated_findings.append(Finding(
-                        claim=sentence,
+                        claim=f"SME ({sme_name}): {sentence}",
                         confidence=ConfidenceLevel.HIGH,
                         sources=[sme_source],
                         context=f"Domain expertise from {sme_name}",

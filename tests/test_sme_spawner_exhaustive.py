@@ -256,12 +256,24 @@ class TestConvertInteractionMode:
 
 class TestLoadSystemPrompt:
     def test_from_template_path(self, spawner, mock_persona, tmp_path):
-        # Create file at persona's template path
-        template_path = Path(mock_persona.system_prompt_template)
+        # Create file at a temp path to avoid overwriting real config files
+        template_path = tmp_path / "config" / "sme" / "cloud_architect.md"
         template_path.parent.mkdir(parents=True, exist_ok=True)
         template_path.write_text("Cloud prompt content")
 
-        prompt = spawner._load_system_prompt(mock_persona)
+        # Create a persona pointing to the temp path
+        temp_persona = SMEPersona(
+            name=mock_persona.name,
+            persona_id=mock_persona.persona_id,
+            domain=mock_persona.domain,
+            trigger_keywords=mock_persona.trigger_keywords,
+            skill_files=mock_persona.skill_files,
+            system_prompt_template=str(template_path),
+            interaction_modes=mock_persona.interaction_modes,
+            description=mock_persona.description,
+        )
+
+        prompt = spawner._load_system_prompt(temp_persona)
         assert prompt == "Cloud prompt content"
 
     def test_fallback_to_sme_templates_dir(self, spawner, tmp_path):

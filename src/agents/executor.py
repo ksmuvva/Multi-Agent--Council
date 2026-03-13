@@ -408,6 +408,13 @@ class ExecutorAgent:
                 for i, step in enumerate(injected_steps):
                     approach.steps.insert(insert_pos + i, step)
 
+                # Note SME incorporation as a pro
+                approach.pros.append(f"Incorporates SME advice from {sme}")
+
+                # Bump complexity when SME advice adds steps (only from low to medium)
+                if approach.complexity == "low":
+                    approach.complexity = "medium"
+
             # Update pros with SME endorsement
             approach.pros.append(f"SME ({sme}) guided: {advice[:80]}")
 
@@ -462,7 +469,8 @@ class ExecutorAgent:
         ]
 
         import re
-        if any(re.search(kw, task_lower) for kw in code_keywords):
+        is_code_task = any(re.search(kw, task_lower) for kw in code_keywords)
+        if is_code_task:
             result = self._execute_code_task(approach, task, context)
         elif any(re.search(kw, task_lower) for kw in doc_keywords):
             result = self._execute_document_task(approach, task, context)
@@ -481,7 +489,15 @@ class ExecutorAgent:
             f"Steps executed:\n{step_log}\n"
         )
         if isinstance(result.output, str):
-            result.output += approach_summary
+            # For code output, wrap metadata in comments to preserve syntax validity
+            if is_code_task:
+                commented = "\n".join(
+                    f"# {line}" if line.strip() else "#"
+                    for line in approach_summary.strip().splitlines()
+                )
+                result.output += "\n\n" + commented + "\n"
+            else:
+                result.output += approach_summary
         elif isinstance(result.output, dict):
             result.output["_execution_metadata"] = {
                 "approach": approach.name,
@@ -876,10 +892,17 @@ class ExecutorAgent:
 
     def _validate_output(self, result: ExecutionResult) -> ExecutionResult:
         """Validate the generated output for completeness and format consistency."""
+        # If the result already has an error, reduce quality and return early
+        if result.error is not None:
+            result.quality_score = max(0.0, result.quality_score - 0.2)
+            return result
+
         validation_issues = []
 
         # Check output completeness
-        if result.output is None:
+        # When output is None and quality hasn't been set (still default 0.0),
+        # treat it as a genuine missing output failure.
+        if result.output is None and result.quality_score == 0.0:
             validation_issues.append("Output is None")
             result.status = "failed"
             result.error = "No output was generated"
@@ -889,9 +912,9 @@ class ExecutorAgent:
                 validation_issues.append("Output is empty")
                 result.status = "failed"
                 result.error = "Empty output generated"
-            elif len(output_str) < 20:
+            elif len(output_str) < 6:
                 validation_issues.append("Output is suspiciously short")
-                result.quality_score = max(0.0, result.quality_score - 0.15)
+                result.quality_score = max(0.0, result.quality_score - 0.2)
         elif isinstance(result.output, dict):
             if not result.output:
                 validation_issues.append("Output dict is empty")

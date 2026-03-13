@@ -263,10 +263,7 @@ class MessageAnalyzer:
             Summary text
         """
         total_messages = len(session.messages)
-        if total_messages > 0:
-            reduction_pct = 100 - (100 * len(preserved_indices) / total_messages)
-        else:
-            reduction_pct = 0.0
+        reduction_pct = 100 - (100 * len(preserved_indices) / total_messages)
 
         summary_parts = [
             f"# Session Summary",

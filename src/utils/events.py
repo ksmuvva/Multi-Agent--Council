@@ -6,6 +6,7 @@ UI components can subscribe to events for real-time updates.
 """
 
 import json
+import logging
 import time
 import threading
 from typing import Callable, Dict, List, Any, Optional, Set
@@ -233,7 +234,7 @@ class EventEmitter:
                 subscription.callback(event)
             except Exception as e:
                 # Log error but don't stop other subscribers
-                self._logger.error(f"Error in subscriber callback: {e}")
+                logging.getLogger(__name__).error(f"Error in subscriber callback: {e}")
 
     def get_event_history(
         self,

@@ -37,9 +37,10 @@ from enum import Enum
 
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
+    from pydantic import Field, AliasChoices
     PYDANTIC_SETTINGS_AVAILABLE = True
 except ImportError:
-    from pydantic import BaseSettings
+    from pydantic import BaseSettings, Field
     PYDANTIC_SETTINGS_AVAILABLE = False
 
 
@@ -297,7 +298,10 @@ class Settings(BaseSettings):
     # =========================================================================
     # LLM Provider Selection
     # =========================================================================
-    llm_provider: LLMProvider = LLMProvider.ANTHROPIC
+    llm_provider: LLMProvider = Field(
+        default=LLMProvider.ANTHROPIC,
+        validation_alias=AliasChoices("llm_provider", "MAS_LLM_PROVIDER", "LLM_PROVIDER"),
+    )
 
     # =========================================================================
     # Anthropic Configuration
@@ -362,34 +366,54 @@ class Settings(BaseSettings):
     # Model Configuration (Legacy/Override Support)
     # =========================================================================
     # These are used if MAS_LLM_PROVIDER is not set or for overrides
-    default_model: Optional[str] = None
-    orchestrator_model: Optional[str] = None
-    council_model: Optional[str] = None
-    analyst_model: Optional[str] = None
-    planner_model: Optional[str] = None
-    clarifier_model: Optional[str] = None
-    researcher_model: Optional[str] = None
-    executor_model: Optional[str] = None
-    code_reviewer_model: Optional[str] = None
-    verifier_model: Optional[str] = None
-    critic_model: Optional[str] = None
-    reviewer_model: Optional[str] = None
-    formatter_model: Optional[str] = None
-    memory_curator_model: Optional[str] = None
-    sme_model: Optional[str] = None
+    default_model: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("default_model", "MAS_DEFAULT_MODEL", "DEFAULT_MODEL"))
+    orchestrator_model: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("orchestrator_model", "MAS_ORCHESTRATOR_MODEL", "ORCHESTRATOR_MODEL"))
+    council_model: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("council_model", "MAS_COUNCIL_MODEL", "COUNCIL_MODEL"))
+    analyst_model: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("analyst_model", "MAS_ANALYST_MODEL", "ANALYST_MODEL"))
+    planner_model: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("planner_model", "MAS_PLANNER_MODEL", "PLANNER_MODEL"))
+    clarifier_model: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("clarifier_model", "MAS_CLARIFIER_MODEL", "CLARIFIER_MODEL"))
+    researcher_model: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("researcher_model", "MAS_RESEARCHER_MODEL", "RESEARCHER_MODEL"))
+    executor_model: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("executor_model", "MAS_EXECUTOR_MODEL", "EXECUTOR_MODEL"))
+    code_reviewer_model: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("code_reviewer_model", "MAS_CODE_REVIEWER_MODEL", "CODE_REVIEWER_MODEL"))
+    verifier_model: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("verifier_model", "MAS_VERIFIER_MODEL", "VERIFIER_MODEL"))
+    critic_model: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("critic_model", "MAS_CRITIC_MODEL", "CRITIC_MODEL"))
+    reviewer_model: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("reviewer_model", "MAS_REVIEWER_MODEL", "REVIEWER_MODEL"))
+    formatter_model: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("formatter_model", "MAS_FORMATTER_MODEL", "FORMATTER_MODEL"))
+    memory_curator_model: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("memory_curator_model", "MAS_MEMORY_CURATOR_MODEL", "MEMORY_CURATOR_MODEL"))
+    sme_model: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("sme_model", "MAS_SME_MODEL", "SME_MODEL"))
 
     # =========================================================================
     # Budget and Cost Control
     # =========================================================================
-    max_budget: float = 5.0
-    budget_warning_threshold: float = 0.8
+    max_budget: float = Field(
+        default=5.0, validation_alias=AliasChoices("max_budget", "MAS_MAX_BUDGET", "MAX_BUDGET"))
+    budget_warning_threshold: float = Field(
+        default=0.8, validation_alias=AliasChoices("budget_warning_threshold", "MAS_BUDGET_WARNING_THRESHOLD", "BUDGET_WARNING_THRESHOLD"))
 
     # =========================================================================
     # Agent Configuration
     # =========================================================================
-    max_turns_orchestrator: int = 200
-    max_turns_subagent: int = 30
-    max_turns_executor: int = 50
+    max_turns_orchestrator: int = Field(
+        default=200, validation_alias=AliasChoices("max_turns_orchestrator", "MAS_MAX_TURNS_ORCHESTRATOR", "MAX_TURNS_ORCHESTRATOR"))
+    max_turns_subagent: int = Field(
+        default=30, validation_alias=AliasChoices("max_turns_subagent", "MAS_MAX_TURNS_SUBAGENT", "MAX_TURNS_SUBAGENT"))
+    max_turns_executor: int = Field(
+        default=50, validation_alias=AliasChoices("max_turns_executor", "MAS_MAX_TURNS_EXECUTOR", "MAX_TURNS_EXECUTOR"))
     max_sme_count: int = 3
     sme_auto_spawn: bool = True
 
@@ -522,12 +546,17 @@ class Settings(BaseSettings):
         # Normalize agent name
         agent_key = agent_name.lower().replace(" ", "_").replace("-", "_")
 
-        # Check for explicit override first (for backward compatibility)
+        # Check for explicit per-agent override first (e.g., MAS_ORCHESTRATOR_MODEL)
         override_attr = f"{agent_key}_model"
         if hasattr(self, override_attr):
             override = getattr(self, override_attr)
             if override:
                 return override
+
+        # Check for default model override (MAS_DEFAULT_MODEL)
+        # This takes precedence over provider mappings when explicitly set
+        if self.default_model:
+            return self.default_model
 
         # Get default model mapping for current provider
         mapping = DEFAULT_MODEL_MAPPINGS.get(self.llm_provider)
@@ -540,13 +569,13 @@ class Settings(BaseSettings):
         if model:
             return model
 
-        # Fall back to default model
+        # Fall back to default model from provider mapping
         default_model = mapping.get_model("default")
         if default_model:
             return default_model
 
         # Ultimate fallback
-        return self.default_model or "claude-3-5-sonnet-20241022"
+        return "claude-3-5-sonnet-20241022"
 
     def get_provider_config(self) -> Dict[str, Any]:
         """
@@ -700,22 +729,22 @@ def reload_settings(env_file: Optional[str] = None) -> Settings:
 
 def get_api_key() -> str:
     """Convenience function to get the API key for current provider."""
-    return get_settings().get_api_key()
+    return reload_settings().get_api_key()
 
 
 def get_model_for_agent(agent_name: str) -> str:
     """Convenience function to get model ID for an agent."""
-    return get_settings().get_model_for_agent(agent_name)
+    return reload_settings().get_model_for_agent(agent_name)
 
 
 def get_provider() -> LLMProvider:
     """Convenience function to get current LLM provider."""
-    return get_settings().llm_provider
+    return reload_settings().llm_provider
 
 
 def get_provider_config() -> Dict[str, Any]:
     """Convenience function to get provider configuration."""
-    return get_settings().get_provider_config()
+    return reload_settings().get_provider_config()
 
 
 # Export main classes
