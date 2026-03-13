@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from .complexity import TierLevel, TierClassification
 from .verdict import MatrixAction, Verdict, evaluate_verdict_matrix
 from .debate import DebateProtocol, ConsensusLevel
+from src.utils.logging import get_logger
 
 
 class Phase(str, Enum):
@@ -67,8 +68,8 @@ class PipelineState(BaseModel):
     debate_rounds: int = Field(default=0, ge=0)
     total_cost_usd: float = Field(default=0.0, ge=0.0)
     total_tokens: int = Field(default=0, ge=0)
-    start_time: Optional[str] = None
-    end_time: Optional[str] = None
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
 
     class Config:
         json_schema_extra = {
@@ -298,14 +299,14 @@ class ExecutionPipeline:
 
     def _get_council_agents(self) -> List[str]:
         """Get Council agents based on tier."""
-        if self.tier_level >= TierLevel.DEEP:
-            return ["Domain Council Chair"]
-        elif self.tier_level == TierLevel.ADVERSARIAL:
+        if self.tier_level == TierLevel.ADVERSARIAL:
             return [
                 "Domain Council Chair",
                 "Quality Arbiter",
                 "Ethics & Safety Advisor"
             ]
+        elif self.tier_level >= TierLevel.DEEP:
+            return ["Domain Council Chair"]
         return []
 
     def _get_review_agents(self, context: Optional[Dict[str, Any]] = None) -> List[str]:
@@ -359,8 +360,7 @@ class ExecutionPipeline:
         context: Dict[str, Any]
     ) -> None:
         """Handle a verdict matrix action."""
-        import logging
-        logger = logging.getLogger(__name__)
+        logger = get_logger(__name__)
 
         if action == MatrixAction.RESEARCHER_REVERIFY:
             logger.info("Verdict action: RESEARCHER_REVERIFY - re-running research phase on flagged claims")
@@ -510,8 +510,7 @@ class ExecutionPipeline:
         Returns:
             The arbiter's decision dict, or None if invocation is not possible.
         """
-        import logging
-        logger = logging.getLogger(__name__)
+        logger = get_logger(__name__)
 
         # Collect critic and verifier/reviewer outputs from the review phase
         review_result = self.phase_results.get(Phase.PHASE_6_REVIEW)

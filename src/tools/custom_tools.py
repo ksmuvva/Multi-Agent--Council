@@ -433,9 +433,11 @@ def cost_estimate(
         input_tokens = tokens_per_turn * turns
         output_tokens = tokens_per_turn * turns * 0.8  # Output typically 80% of input
 
+        input_cost_rate = INPUT_COSTS.get(model, 3.0)
+        output_cost_rate = OUTPUT_COSTS.get(model, 15.0)
         agent_cost = (
-            (input_tokens / 1_000_000) * INPUT_COSTS[model] +
-            (output_tokens / 1_000_000) * OUTPUT_COSTS[model]
+            (input_tokens / 1_000_000) * input_cost_rate +
+            (output_tokens / 1_000_000) * output_cost_rate
         )
 
         agent_costs.append({
