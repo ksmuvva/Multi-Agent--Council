@@ -10,8 +10,7 @@ trigger_keywords:
   - acceptance criteria
   - stakeholder
 skill_files:
-  - bpm-consultant
-  - vibe-requirements
+  - requirements-engineering
 interaction_modes:
   - advisor
   - co-executor

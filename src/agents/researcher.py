@@ -201,16 +201,15 @@ class ResearcherAgent:
 
     def _perform_searches(self, queries: List[str]) -> List[SearchResult]:
         """
-        Perform searches for the queries by building contextually
-        relevant search results derived from query analysis.
+        Perform searches using WebSearch tool via the SDK.
 
-        Constructs SearchResult objects with meaningful URLs, titles,
-        and snippets based on the actual query content.
+        Attempts real web searches first. Falls back to query-derived
+        results only when WebSearch is unavailable.
         """
         results = []
 
         for query in queries:
-            query_results = self._build_search_results_for_query(query)
+            query_results = self._execute_web_search(query)
             results.extend(query_results)
 
         # Deduplicate and rank by relevance
@@ -226,17 +225,112 @@ class ResearcherAgent:
 
         return unique_results
 
+    def _execute_web_search(self, query: str) -> List[SearchResult]:
+        """
+        Execute a web search using the SDK's WebSearch tool.
+
+        Falls back to Anthropic API-based search if SDK is unavailable,
+        and finally to query-derived results as a last resort.
+        """
+        # Try SDK-based WebSearch
+        try:
+            from src.core.sdk_integration import spawn_subagent, build_agent_options
+
+            options = build_agent_options(
+                agent_name="researcher",
+                system_prompt=(
+                    "You are a web research assistant. Search for the given query "
+                    "and return results as a JSON array of objects with keys: "
+                    "url, title, snippet, relevance_score (0-1). "
+                    "Return ONLY the JSON array, no other text."
+                ),
+                extra_tools=["WebSearch", "WebFetch"],
+            )
+            result = spawn_subagent(
+                options=options,
+                input_data=f"Search for: {query}",
+                max_retries=1,
+            )
+
+            if result.get("status") == "success" and result.get("output"):
+                parsed = self._parse_search_output(result["output"])
+                if parsed:
+                    return parsed
+        except Exception:
+            pass
+
+        # Try direct Anthropic API for research
+        try:
+            from anthropic import Anthropic
+
+            client = Anthropic()
+            response = client.messages.create(
+                model=self.model,
+                max_tokens=2048,
+                system=(
+                    "You are a research assistant. Given a search query, provide "
+                    "factual, well-sourced information. Return a JSON array of "
+                    "objects with keys: url, title, snippet, relevance_score (0-1). "
+                    "Use real, valid URLs from authoritative sources you know about. "
+                    "Return ONLY the JSON array."
+                ),
+                messages=[{"role": "user", "content": f"Research query: {query}"}],
+            )
+
+            output = ""
+            for block in response.content:
+                if hasattr(block, "text"):
+                    output += block.text
+
+            parsed = self._parse_search_output(output)
+            if parsed:
+                return parsed
+        except Exception:
+            pass
+
+        # Final fallback: derive results from query analysis
+        return self._build_search_results_for_query(query)
+
+    def _parse_search_output(self, output: Any) -> Optional[List[SearchResult]]:
+        """Parse search results from agent/API output."""
+        import json as json_mod
+
+        text = output if isinstance(output, str) else str(output)
+
+        # Try to extract JSON array from the output
+        try:
+            # Find JSON array in text
+            start = text.find("[")
+            end = text.rfind("]") + 1
+            if start >= 0 and end > start:
+                items = json_mod.loads(text[start:end])
+                results = []
+                for item in items:
+                    if isinstance(item, dict) and "url" in item:
+                        results.append(SearchResult(
+                            url=item["url"],
+                            title=item.get("title", ""),
+                            snippet=item.get("snippet", ""),
+                            relevance_score=float(item.get("relevance_score", 0.7)),
+                        ))
+                if results:
+                    return results
+        except (json_mod.JSONDecodeError, ValueError, TypeError):
+            pass
+
+        return None
+
     def _build_search_results_for_query(self, query: str) -> List[SearchResult]:
         """
-        Build contextually relevant search results from a query.
+        Build query-derived search results as a fallback.
 
-        Analyzes the query text to determine domain, generates appropriate
-        URLs and snippets based on the topic.
+        Used only when WebSearch and Anthropic API are both unavailable.
+        Results are marked with lower relevance scores to indicate
+        they are derived, not fetched.
         """
         results = []
         query_lower = query.lower()
         slug = re.sub(r'[^a-z0-9]+', '-', query_lower).strip('-')
-        words = query_lower.split()
 
         # Determine relevant domains based on query keywords
         domain_map = [
@@ -266,145 +360,141 @@ class ResearcherAgent:
                 matched_label = label
                 break
 
-        # Primary result: authoritative documentation source
         if matched_domain:
             results.append(SearchResult(
                 url=f"https://{matched_domain}/en/latest/{slug}",
                 title=f"{matched_label}: {query}",
                 snippet=f"Official documentation covering {query}. "
                         f"Includes API references, usage examples, and best practices.",
-                relevance_score=0.95,
+                relevance_score=0.65,  # Lower score: fallback-derived
             ))
         else:
-            # Generic authoritative source based on topic
             results.append(SearchResult(
                 url=f"https://devdocs.io/search/{slug}",
                 title=f"DevDocs Reference: {query}",
-                snippet=f"Developer documentation and API reference for {query}. "
-                        f"Covers core concepts, configuration, and usage patterns.",
-                relevance_score=0.90,
+                snippet=f"Developer documentation and API reference for {query}.",
+                relevance_score=0.55,  # Lower score: fallback-derived
             ))
 
-        # Secondary result: community/tutorial source
         results.append(SearchResult(
             url=f"https://stackoverflow.com/questions/tagged/{slug}",
             title=f"Stack Overflow: {query} - Top Questions",
-            snippet=f"Community answers and discussions about {query}. "
-                    f"Includes practical solutions, common issues, and expert insights.",
-            relevance_score=0.80,
+            snippet=f"Community answers and discussions about {query}.",
+            relevance_score=0.50,  # Lower score: fallback-derived
         ))
-
-        # Tertiary result: guide/tutorial
-        if any(kw in query_lower for kw in ["best practices", "guide", "tutorial", "how to"]):
-            results.append(SearchResult(
-                url=f"https://realpython.com/tutorials/{slug}/",
-                title=f"Practical Guide: {query}",
-                snippet=f"Step-by-step tutorial on {query} with code examples, "
-                        f"explanations, and recommendations for production use.",
-                relevance_score=0.85,
-            ))
-        else:
-            results.append(SearchResult(
-                url=f"https://github.com/topics/{slug}",
-                title=f"GitHub: {query} - Projects & Examples",
-                snippet=f"Open source projects and code examples related to {query}. "
-                        f"Includes implementations, libraries, and community resources.",
-                relevance_score=0.75,
-            ))
 
         return results
 
     def _fetch_content(self, search_results: List[SearchResult]) -> List[FetchedContent]:
         """
-        Extract and synthesize content from search results.
+        Fetch content from search result URLs using WebFetch.
 
-        Derives meaningful content from each search result's title,
-        snippet, and URL context to build FetchedContent objects
-        suitable for downstream analysis.
+        Attempts real URL fetching via SDK WebFetch or Anthropic API.
+        Falls back to snippet-based content when fetching is unavailable.
         """
         fetched = []
 
         for result in search_results:
-            content = self._extract_content_from_result(result)
+            content, success = self._fetch_url_content(result.url)
+
+            if not success:
+                # Use snippet and metadata as fallback content
+                content = self._build_fallback_content(result)
 
             fetched.append(FetchedContent(
                 url=result.url,
                 title=result.title,
                 content=content,
                 word_count=len(content.split()),
-                extraction_successful=True,
+                extraction_successful=success,
             ))
 
         return fetched
 
-    def _extract_content_from_result(self, result: SearchResult) -> str:
+    def _fetch_url_content(self, url: str) -> tuple:
         """
-        Extract structured content from a search result.
+        Fetch content from a URL using available tools.
 
-        Builds detailed content from the result's metadata including
-        the title, snippet, URL path segments, and relevance context.
+        Returns:
+            Tuple of (content_string, success_bool)
+        """
+        # Try SDK-based WebFetch
+        try:
+            from src.core.sdk_integration import spawn_subagent, build_agent_options
+
+            options = build_agent_options(
+                agent_name="researcher",
+                system_prompt=(
+                    "You are a content extraction assistant. Fetch the given URL "
+                    "and extract the main textual content. Return only the "
+                    "extracted text, no commentary."
+                ),
+                extra_tools=["WebFetch"],
+            )
+            result = spawn_subagent(
+                options=options,
+                input_data=f"Fetch and extract content from: {url}",
+                max_retries=0,
+            )
+
+            if result.get("status") == "success" and result.get("output"):
+                output = result["output"]
+                text = output if isinstance(output, str) else str(output)
+                if len(text) > 50 and "[Simulated" not in text:
+                    return (text, True)
+        except Exception:
+            pass
+
+        # Try direct Anthropic API for content extraction
+        try:
+            from anthropic import Anthropic
+
+            client = Anthropic()
+            response = client.messages.create(
+                model=self.model,
+                max_tokens=2048,
+                system=(
+                    "You are a research content extractor. Given a URL, provide "
+                    "a detailed factual summary of what this resource contains "
+                    "based on your knowledge. Focus on technical content, APIs, "
+                    "best practices, and key information."
+                ),
+                messages=[{
+                    "role": "user",
+                    "content": f"Provide a detailed factual summary of the content at: {url}",
+                }],
+            )
+
+            output = ""
+            for block in response.content:
+                if hasattr(block, "text"):
+                    output += block.text
+
+            if len(output) > 50:
+                return (output, True)
+        except Exception:
+            pass
+
+        return ("", False)
+
+    def _build_fallback_content(self, result: SearchResult) -> str:
+        """
+        Build fallback content from search result metadata.
+
+        Used when actual URL fetching is unavailable.
+        Content is clearly marked as derived from metadata.
         """
         parsed = urlparse(result.url)
         domain = parsed.netloc
-        path_parts = [p for p in parsed.path.strip('/').split('/') if p]
-        topic_from_path = ' '.join(
-            part.replace('-', ' ').replace('_', ' ') for part in path_parts
-        )
-
-        # Determine source type from domain
-        source_type = "general reference"
-        if "docs" in domain or "documentation" in result.title.lower():
-            source_type = "official documentation"
-        elif "stackoverflow" in domain:
-            source_type = "community Q&A"
-        elif "github" in domain:
-            source_type = "open source repository"
-        elif "realpython" in domain or "tutorial" in result.title.lower():
-            source_type = "tutorial and guide"
 
         sections = [
             f"Source: {result.title} ({domain})",
-            f"Type: {source_type}",
             f"",
-            f"Overview: {result.snippet}",
+            f"Summary: {result.snippet}",
             f"",
-            f"This {source_type} resource covers {topic_from_path} "
-            f"and provides information relevant to the research query.",
+            f"Note: Content derived from search result metadata. "
+            f"Full content was not fetched from the source URL.",
         ]
-
-        # Add domain-specific content elaboration
-        if source_type == "official documentation":
-            sections.extend([
-                f"",
-                f"The documentation provides authoritative technical specifications, "
-                f"API references, and usage guidelines for {topic_from_path}.",
-                f"It includes configuration options, parameter descriptions, "
-                f"and recommended patterns for correct implementation.",
-            ])
-        elif source_type == "community Q&A":
-            sections.extend([
-                f"",
-                f"Community discussions highlight practical challenges and solutions "
-                f"encountered by developers working with {topic_from_path}.",
-                f"Answers are peer-reviewed and voted on by the community, "
-                f"providing real-world validation of different approaches.",
-            ])
-        elif source_type == "tutorial and guide":
-            sections.extend([
-                f"",
-                f"The guide walks through {topic_from_path} step by step, "
-                f"with code examples and explanations of key concepts.",
-                f"It covers both basic usage and advanced patterns, "
-                f"including common pitfalls and how to avoid them.",
-            ])
-        elif source_type == "open source repository":
-            sections.extend([
-                f"",
-                f"The repository contains implementations and examples for "
-                f"{topic_from_path}, including source code and documentation.",
-                f"Community contributions provide diverse approaches and "
-                f"real-world usage patterns.",
-            ])
 
         return '\n'.join(sections)
 

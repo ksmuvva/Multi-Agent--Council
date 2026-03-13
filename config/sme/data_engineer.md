@@ -12,7 +12,7 @@ trigger_keywords:
   - batch
   - data lake
 skill_files:
-  - data-scientist
+  - architecture-design
 interaction_modes:
   - advisor
   - co-executor

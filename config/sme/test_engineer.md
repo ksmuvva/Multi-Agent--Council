@@ -11,8 +11,7 @@ trigger_keywords:
   - unit test
   - integration test
 skill_files:
-  - sailpoint-test-engineer
-  - euroclear-test-cases
+  - test-case-generation
 interaction_modes:
   - advisor
   - co-executor

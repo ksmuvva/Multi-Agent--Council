@@ -10,7 +10,7 @@ trigger_keywords:
   - monitoring
   - observability
 skill_files:
-  - azure-architect
+  - architecture-design
 interaction_modes:
   - advisor
   - co-executor

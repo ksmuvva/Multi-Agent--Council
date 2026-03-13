@@ -47,6 +47,9 @@ from src.core.sdk_integration import (
     spawn_subagent,
     create_sdk_mcp_server,
     get_skills_for_agent,
+    override_agent_skills,
+    clear_skill_overrides,
+    apply_skill_chain,
     AGENT_ALLOWED_TOOLS,
     PermissionMode,
 )
@@ -294,6 +297,8 @@ class OrchestratorAgent:
         session_id: Optional[str] = None,
         format: str = "markdown",
         file_path: Optional[str] = None,
+        skill_overrides: Optional[Dict[str, List[str]]] = None,
+        skill_chain: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Execute a query through the multi-agent system.
@@ -306,10 +311,22 @@ class OrchestratorAgent:
             session_id: Optional session ID for persistence
             format: Output format (markdown, json, text)
             file_path: Optional file to attach
+            skill_overrides: Optional per-task skill overrides {agent_name: [skills]}
+            skill_chain: Optional skill chain name to apply
 
         Returns:
             Dictionary with formatted response and metadata
         """
+        # Apply per-task skill overrides (FR-028)
+        clear_skill_overrides()
+        if skill_overrides:
+            for agent_name, skills in skill_overrides.items():
+                override_agent_skills(agent_name, skills)
+
+        # Apply skill chain (FR-029)
+        if skill_chain:
+            apply_skill_chain(skill_chain)
+
         # Process the request
         result = self.process_request(
             user_prompt=user_prompt,

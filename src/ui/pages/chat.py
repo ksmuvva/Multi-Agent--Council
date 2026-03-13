@@ -507,27 +507,32 @@ def process_user_input(prompt: str, options: Dict[str, Any]) -> None:
 
     add_message(user_message)
 
-    # Process with orchestrator then rerun
-    simulate_agent_response(prompt, tier, output_format, options)
+    # Process with orchestrator
+    execute_orchestrator_request(full_prompt, tier, output_format, options)
 
     st.rerun()
 
 
-def simulate_agent_response(
+def execute_orchestrator_request(
     prompt: str,
     tier: int,
     output_format: str,
     options: Dict[str, Any],
 ) -> None:
     """
-    Simulate an agent response (placeholder for actual integration).
+    Execute a request through the real multi-agent orchestrator.
+
+    Falls back to direct Anthropic API if orchestrator fails,
+    and finally to a clear error message.
 
     Args:
-        prompt: User's prompt
+        prompt: User's prompt (including any attached file content)
         tier: Complexity tier
         output_format: Desired output format
         options: Processing options
     """
+    start_time = time.time()
+
     # Create a processing message
     processing_message = ChatMessage(
         message_id=f"msg_{int(time.time() * 1000000)}",
@@ -538,135 +543,97 @@ def simulate_agent_response(
         tier=tier,
         metadata={"tier": tier},
     )
-
     add_message(processing_message)
 
-    # Simulate processing delay
-    time.sleep(1)
+    response_text = ""
+    response_metadata: Dict[str, Any] = {"tier": tier}
 
-    # Update with response
-    response = generate_mock_response(prompt, tier, output_format)
+    # Try 1: Real orchestrator
+    try:
+        from src.agents.orchestrator import create_orchestrator
 
-    processing_message.content = response
+        budget = options.get("budget", 10.0)
+        verbose = options.get("verbose", False)
+
+        orchestrator = create_orchestrator(
+            max_budget_usd=budget,
+            verbose=verbose,
+        )
+
+        result = orchestrator.execute(
+            user_prompt=prompt,
+            tier_level=tier,
+            format=output_format,
+        )
+
+        response_text = result.get("formatted_output", result.get("raw_output", ""))
+        response_metadata.update({
+            "duration": result.get("duration_seconds", time.time() - start_time),
+            "tokens": result.get("metadata", {}).get("total_tokens", 0),
+            "cost": result.get("total_cost_usd", 0),
+            "agents_used": result.get("metadata", {}).get("agents_used", []),
+            "smes_used": result.get("metadata", {}).get("smes_used", []),
+            "source": "orchestrator",
+        })
+
+    except Exception as orch_error:
+        # Try 2: Direct Anthropic API fallback
+        try:
+            from anthropic import Anthropic
+
+            client = Anthropic()
+            api_response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=4096,
+                system=(
+                    f"You are a helpful assistant. The user's request is at "
+                    f"complexity tier {tier}. Provide a thorough response."
+                ),
+                messages=[{"role": "user", "content": prompt}],
+            )
+
+            for block in api_response.content:
+                if hasattr(block, "text"):
+                    response_text += block.text
+
+            total_tokens = (
+                api_response.usage.input_tokens + api_response.usage.output_tokens
+            )
+            cost = (
+                api_response.usage.input_tokens / 1_000_000 * 3.0
+                + api_response.usage.output_tokens / 1_000_000 * 15.0
+            )
+
+            response_metadata.update({
+                "duration": time.time() - start_time,
+                "tokens": total_tokens,
+                "cost": cost,
+                "source": "anthropic_api_fallback",
+            })
+
+        except Exception:
+            # Try 3: Clear error with guidance
+            response_text = (
+                f"**Unable to process request**\n\n"
+                f"The multi-agent orchestrator and Anthropic API are both "
+                f"unavailable. Please check:\n\n"
+                f"1. `ANTHROPIC_API_KEY` is set in your `.env` file\n"
+                f"2. The `anthropic` package is installed (`pip install anthropic`)\n"
+                f"3. Network connectivity to the Anthropic API\n\n"
+                f"**Orchestrator error:** {orch_error}\n\n"
+                f"Configure your API key in the Settings page to enable "
+                f"the multi-agent reasoning system."
+            )
+            response_metadata.update({
+                "duration": time.time() - start_time,
+                "error": str(orch_error),
+                "source": "unavailable",
+            })
+
+    # Update the processing message with the response
+    processing_message.content = response_text
     processing_message.status = MessageStatus.COMPLETED
-    processing_message.metadata = {
-        "tier": tier,
-        "duration": 1.5,
-        "tokens": 150 + tier * 100,
-        "cost": 0.01 + tier * 0.005,
-    }
-
-    # Show download buttons for any artifacts in the response
-    if processing_message.artifacts:
-        for artifact in processing_message.artifacts:
-            artifact_name = artifact.get("name", "artifact")
-            artifact_content = artifact.get("content", "")
-            artifact_type = artifact.get("type", "file")
-            if artifact_type == "file" and artifact.get("path"):
-                file_path = Path(artifact["path"])
-                if file_path.exists():
-                    with open(file_path, "rb") as f:
-                        st.download_button(
-                            label=f"Download {artifact_name}",
-                            data=f.read(),
-                            file_name=file_path.name,
-                            mime="application/octet-stream",
-                            key=f"dl_{processing_message.message_id}_{artifact_name}",
-                        )
-            elif artifact_content:
-                st.download_button(
-                    label=f"Download {artifact_name}",
-                    data=artifact_content,
-                    file_name=artifact_name,
-                    mime="text/plain",
-                    key=f"dl_{processing_message.message_id}_{artifact_name}",
-                )
-
-    st.rerun()
-
-
-def generate_mock_response(prompt: str, tier: int, output_format: str) -> str:
-    """Generate a mock response (for testing)."""
-    tier_descriptions = {
-        1: "Direct",
-        2: "Standard",
-        3: "Deep",
-        4: "Adversarial",
-    }
-
-    response = f"""# Response to: "{prompt[:50]}..."
-
-**Tier:** {tier_descriptions.get(tier, tier)}
-**Format:** {output_format}
-
-This is a simulated response. The actual multi-agent system will provide
-comprehensive responses based on the complexity tier selected.
-
-## What happens at Tier {tier}?
-
-"""
-
-    if tier == 1:
-        response += """
-- **Executor Agent**: Generates the direct response
-- **Formatter Agent**: Formats output
-
-This tier handles simple, well-defined requests.
-"""
-    elif tier == 2:
-        response += """
-- **Analyst Agent**: Analyzes the request
-- **Planner Agent**: Creates execution plan
-- **Executor Agent**: Generates solution
-- **Verifier Agent**: Validates output
-- **Formatter Agent**: Formats output
-
-This tier handles standard tasks requiring research and planning.
-"""
-    elif tier == 3:
-        response += """
-- **Council Chair**: Selects relevant SMEs
-- **SME Personas**: Provide domain expertise
-- **Analyst Agent**: Deep analysis
-- **Planner Agent**: Comprehensive planning
-- **Researcher Agent**: Extensive research
-- **Executor Agent**: Detailed solution
-- **Verifier Agent**: Thorough validation
-- **Critic Agent**: Quality review
-- **Formatter Agent**: Polished output
-
-This tier handles complex, multi-domain tasks.
-"""
-    else:  # tier 4
-        response += """
-- **Full Council**: Governance and oversight
-- **Quality Arbiter**: Sets quality standards
-- **Ethics Advisor**: Reviews for concerns
-- **Multiple SMEs**: Cross-domain expertise
-- **Self-Play Debate**: Multi-perspective reasoning
-- **Adversarial Critic**: Stress-tests solutions
-- **Full Agent Pipeline**: All operational agents
-- **Reviewer Agent**: Final quality gate
-- **Formatter Agent**: Publication-ready output
-
-This tier handles adversarial, high-stakes tasks requiring the highest quality.
-"""
-
-    response += f"""
-## Next Steps
-
-To use the actual multi-agent system:
-1. Configure your API keys in Settings
-2. The system will automatically route based on tier
-3. Watch the Agent Activity panel for real-time updates
-4. Review results in the Results tab
-
----
-
-*Generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*
-"""
-
-    return response
+    processing_message.metadata = response_metadata
 
 
 # =============================================================================

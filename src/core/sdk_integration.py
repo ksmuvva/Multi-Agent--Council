@@ -7,7 +7,7 @@ outputFormat schemas, MCP server registration, and SDK query wrappers.
 
 import json
 import os
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -499,22 +499,81 @@ def create_sdk_mcp_server() -> Dict[str, Any]:
 # Skill Integration
 # =============================================================================
 
-def get_skills_for_agent(agent_name: str) -> List[str]:
+AGENT_SKILLS: Dict[str, List[str]] = {
+    "executor": ["code-generation"],
+    "formatter": ["document-creation"],
+    "analyst": ["requirements-engineering"],
+    "planner": ["architecture-design"],
+    "researcher": ["web-research"],
+    "code_reviewer": ["code-generation"],
+    "orchestrator": ["multi-agent-reasoning"],
+}
+
+# Active per-task skill overrides (set via override_agent_skills)
+_task_skill_overrides: Dict[str, List[str]] = {}
+
+
+def get_skills_for_agent(
+    agent_name: str,
+    task_context: Optional[Dict[str, Any]] = None,
+) -> List[str]:
     """
     Get the skill names that should be loaded for an agent.
 
-    Maps agents to their assigned skills from the skill system.
+    Supports per-task skill overrides via task_context or the global
+    override registry. Priority order:
+    1. task_context["skill_overrides"][agent_name] (per-task override)
+    2. _task_skill_overrides[agent_name] (global session override)
+    3. AGENT_SKILLS[agent_name] (default assignment)
+
+    Args:
+        agent_name: Normalized agent name
+        task_context: Optional task context with skill_overrides dict
     """
-    AGENT_SKILLS: Dict[str, List[str]] = {
-        "executor": ["code-generation"],
-        "formatter": ["document-creation"],
-        "analyst": ["requirements-engineering"],
-        "planner": ["architecture-design"],
-        "researcher": ["web-research"],
-        "code_reviewer": ["code-generation"],
-        "orchestrator": ["multi-agent-reasoning"],
-    }
-    return AGENT_SKILLS.get(agent_name, [])
+    # Priority 1: Per-task override from context
+    if task_context:
+        overrides = task_context.get("skill_overrides", {})
+        if agent_name in overrides:
+            return list(overrides[agent_name])
+
+    # Priority 2: Global session override
+    if agent_name in _task_skill_overrides:
+        return list(_task_skill_overrides[agent_name])
+
+    # Priority 3: Default assignment
+    return list(AGENT_SKILLS.get(agent_name, []))
+
+
+def override_agent_skills(
+    agent_name: str,
+    skills: List[str],
+) -> None:
+    """
+    Override the skill assignment for an agent for the current session.
+
+    This enables per-task skill customization as required by FR-028.
+
+    Args:
+        agent_name: Normalized agent name (e.g., "executor", "analyst")
+        skills: List of skill names to assign (must exist in .claude/skills/)
+    """
+    _task_skill_overrides[agent_name] = list(skills)
+
+
+def clear_skill_overrides() -> None:
+    """Clear all per-task skill overrides, reverting to defaults."""
+    _task_skill_overrides.clear()
+
+
+def get_skill_assignments() -> Dict[str, List[str]]:
+    """
+    Get the current effective skill assignments for all agents.
+
+    Merges defaults with any active overrides.
+    """
+    effective = dict(AGENT_SKILLS)
+    effective.update(_task_skill_overrides)
+    return effective
 
 
 def get_skills_for_sme(persona_id: str) -> List[str]:
@@ -524,3 +583,192 @@ def get_skills_for_sme(persona_id: str) -> List[str]:
     if persona:
         return persona.skill_files
     return []
+
+
+# =============================================================================
+# Skill Chaining (FR-029)
+# =============================================================================
+
+@dataclass
+class SkillChainStep:
+    """A step in a skill chain."""
+    skill_name: str
+    agent_name: str
+    input_from: Optional[str] = None  # Previous step's agent_name to use output from
+    config: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class SkillChain:
+    """
+    A configurable skill chain that defines the order of skill
+    invocations across agents in the pipeline.
+
+    Chains allow skills to reference outputs from prior skill invocations,
+    enabling composed workflows like:
+      requirements-engineering -> architecture-design -> code-generation
+    """
+    name: str
+    description: str
+    steps: List[SkillChainStep] = field(default_factory=list)
+
+    def add_step(
+        self,
+        skill_name: str,
+        agent_name: str,
+        input_from: Optional[str] = None,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> "SkillChain":
+        """Add a step to the chain. Returns self for fluent chaining."""
+        self.steps.append(SkillChainStep(
+            skill_name=skill_name,
+            agent_name=agent_name,
+            input_from=input_from,
+            config=config or {},
+        ))
+        return self
+
+    def get_skill_overrides(self) -> Dict[str, List[str]]:
+        """Convert chain steps to skill overrides for agents."""
+        overrides: Dict[str, List[str]] = {}
+        for step in self.steps:
+            if step.agent_name not in overrides:
+                overrides[step.agent_name] = []
+            if step.skill_name not in overrides[step.agent_name]:
+                overrides[step.agent_name].append(step.skill_name)
+        return overrides
+
+    def get_input_mapping(self) -> Dict[str, str]:
+        """Get the input dependency mapping for the chain."""
+        mapping = {}
+        for step in self.steps:
+            if step.input_from:
+                mapping[step.agent_name] = step.input_from
+        return mapping
+
+
+# Built-in skill chains
+BUILTIN_CHAINS: Dict[str, SkillChain] = {
+    "full_development": SkillChain(
+        name="full_development",
+        description="Full development workflow: requirements -> architecture -> code -> tests",
+        steps=[
+            SkillChainStep(
+                skill_name="requirements-engineering",
+                agent_name="analyst",
+            ),
+            SkillChainStep(
+                skill_name="architecture-design",
+                agent_name="planner",
+                input_from="analyst",
+            ),
+            SkillChainStep(
+                skill_name="code-generation",
+                agent_name="executor",
+                input_from="planner",
+            ),
+            SkillChainStep(
+                skill_name="test-case-generation",
+                agent_name="code_reviewer",
+                input_from="executor",
+            ),
+        ],
+    ),
+    "research_and_document": SkillChain(
+        name="research_and_document",
+        description="Research a topic and produce documentation",
+        steps=[
+            SkillChainStep(
+                skill_name="web-research",
+                agent_name="researcher",
+            ),
+            SkillChainStep(
+                skill_name="document-creation",
+                agent_name="formatter",
+                input_from="researcher",
+            ),
+        ],
+    ),
+    "architecture_review": SkillChain(
+        name="architecture_review",
+        description="Architecture design with multi-agent review",
+        steps=[
+            SkillChainStep(
+                skill_name="requirements-engineering",
+                agent_name="analyst",
+            ),
+            SkillChainStep(
+                skill_name="architecture-design",
+                agent_name="planner",
+                input_from="analyst",
+            ),
+            SkillChainStep(
+                skill_name="multi-agent-reasoning",
+                agent_name="orchestrator",
+                input_from="planner",
+            ),
+        ],
+    ),
+}
+
+
+def get_skill_chain(chain_name: str) -> Optional[SkillChain]:
+    """Get a skill chain by name."""
+    return BUILTIN_CHAINS.get(chain_name)
+
+
+def list_skill_chains() -> Dict[str, str]:
+    """List available skill chains with descriptions."""
+    return {name: chain.description for name, chain in BUILTIN_CHAINS.items()}
+
+
+def apply_skill_chain(chain_name: str) -> Optional[SkillChain]:
+    """
+    Apply a skill chain, setting up skill overrides for all agents in the chain.
+
+    Args:
+        chain_name: Name of the chain to apply
+
+    Returns:
+        The SkillChain if found, None otherwise
+    """
+    chain = get_skill_chain(chain_name)
+    if chain is None:
+        return None
+
+    # Apply skill overrides from the chain
+    overrides = chain.get_skill_overrides()
+    for agent_name, skills in overrides.items():
+        override_agent_skills(agent_name, skills)
+
+    return chain
+
+
+def create_custom_chain(
+    name: str,
+    description: str,
+    steps: List[Dict[str, Any]],
+) -> SkillChain:
+    """
+    Create a custom skill chain from a list of step definitions.
+
+    Args:
+        name: Chain name
+        description: Chain description
+        steps: List of dicts with keys: skill_name, agent_name, input_from (optional)
+
+    Returns:
+        The created SkillChain
+    """
+    chain = SkillChain(name=name, description=description)
+    for step in steps:
+        chain.add_step(
+            skill_name=step["skill_name"],
+            agent_name=step["agent_name"],
+            input_from=step.get("input_from"),
+            config=step.get("config", {}),
+        )
+
+    # Register it
+    BUILTIN_CHAINS[name] = chain
+    return chain

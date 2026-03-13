@@ -67,7 +67,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "identity governance",
             "lifecycle management"
         ],
-        skill_files=["sailpoint-test-engineer", "azure-architect"],
+        skill_files=["architecture-design"],
         system_prompt_template="config/sme/iam_architect.md",
         interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
         description="Expert in identity governance, SailPoint, CyberArk, and Azure AD"
@@ -93,7 +93,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "lambda",
             "functions"
         ],
-        skill_files=["azure-architect"],
+        skill_files=["architecture-design"],
         system_prompt_template="config/sme/cloud_architect.md",
         interaction_modes=[
             InteractionMode.ADVISOR,
@@ -121,7 +121,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "csrf",
             "security review"
         ],
-        skill_files=["azure-architect"],
+        skill_files=["web-research"],
         system_prompt_template="config/sme/security_analyst.md",
         interaction_modes=[InteractionMode.ADVISOR, InteractionMode.DEBATER],
         description="Expert in threat modeling, OWASP, and secure development practices"
@@ -145,7 +145,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "data modeling",
             "analytics"
         ],
-        skill_files=["data-scientist"],
+        skill_files=["architecture-design"],
         system_prompt_template="config/sme/data_engineer.md",
         interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
         description="Expert in data pipelines, ETL/ELT, databases, and data modeling"
@@ -169,7 +169,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "inference",
             "model deployment"
         ],
-        skill_files=["ai-engineer", "genai-system-design"],
+        skill_files=["code-generation", "multi-agent-reasoning"],
         system_prompt_template="config/sme/ai_ml_engineer.md",
         interaction_modes=[
             InteractionMode.ADVISOR,
@@ -196,7 +196,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "testing strategy",
             "quality assurance"
         ],
-        skill_files=["sailpoint-test-engineer", "euroclear-test-cases"],
+        skill_files=["test-case-generation"],
         system_prompt_template="config/sme/test_engineer.md",
         interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
         description="Expert in test strategy, test automation, and quality assurance"
@@ -218,7 +218,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "workflow",
             "use cases"
         ],
-        skill_files=["bpm-consultant", "vibe-requirements"],
+        skill_files=["requirements-engineering"],
         system_prompt_template="config/sme/business_analyst.md",
         interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
         description="Expert in requirements gathering, process analysis, and BPMN"
@@ -239,7 +239,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "technical writing",
             "documentation structure"
         ],
-        skill_files=["human-like-writing", "tender-writing-expert"],
+        skill_files=["document-creation"],
         system_prompt_template="config/sme/technical_writer.md",
         interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
         description="Expert in technical documentation, proposals, and communication"
@@ -262,7 +262,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "continuous integration",
             "continuous deployment"
         ],
-        skill_files=["azure-architect"],
+        skill_files=["architecture-design"],
         system_prompt_template="config/sme/devops_engineer.md",
         interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
         description="Expert in CI/CD, containers, Kubernetes, and infrastructure automation"
@@ -285,10 +285,150 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "css",
             "javascript"
         ],
-        skill_files=["frontend-design"],
+        skill_files=["code-generation"],
         system_prompt_template="config/sme/frontend_developer.md",
         interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
         description="Expert in Streamlit, React, UI design, and frontend development"
+    ),
+
+    # =========================================================================
+    # FRD FR-019 Personas (Required by specification)
+    # =========================================================================
+
+    "software_architect": SMEPersona(
+        name="Software Architect",
+        persona_id="software_architect",
+        domain="Software Architecture & System Design",
+        trigger_keywords=[
+            "architecture",
+            "design patterns",
+            "system design",
+            "microservices",
+            "monolith",
+            "scalability",
+            "distributed systems",
+            "api design",
+            "clean architecture",
+            "domain driven design"
+        ],
+        skill_files=["architecture-design"],
+        system_prompt_template="config/sme/software_architect.md",
+        interaction_modes=[
+            InteractionMode.ADVISOR,
+            InteractionMode.CO_EXECUTOR,
+            InteractionMode.DEBATER
+        ],
+        description="Expert in system design, design patterns, and architectural trade-offs"
+    ),
+
+    "data_scientist": SMEPersona(
+        name="Data Scientist",
+        persona_id="data_scientist",
+        domain="Data Science & Statistics",
+        trigger_keywords=[
+            "statistics",
+            "data analysis",
+            "visualization",
+            "regression",
+            "classification",
+            "clustering",
+            "hypothesis testing",
+            "a/b testing",
+            "feature engineering",
+            "exploratory data analysis"
+        ],
+        skill_files=["web-research"],
+        system_prompt_template="config/sme/data_scientist.md",
+        interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
+        description="Expert in statistical analysis, ML modeling, and data-driven decisions"
+    ),
+
+    "ux_designer": SMEPersona(
+        name="UX Designer",
+        persona_id="ux_designer",
+        domain="User Experience & Design Systems",
+        trigger_keywords=[
+            "user experience",
+            "ux",
+            "usability",
+            "accessibility",
+            "design system",
+            "wireframe",
+            "prototype",
+            "user research",
+            "information architecture",
+            "interaction design"
+        ],
+        skill_files=["requirements-engineering"],
+        system_prompt_template="config/sme/ux_designer.md",
+        interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
+        description="Expert in user experience design, accessibility, and design systems"
+    ),
+
+    "qa_engineer": SMEPersona(
+        name="QA Engineer",
+        persona_id="qa_engineer",
+        domain="Quality Assurance & Testing Strategy",
+        trigger_keywords=[
+            "quality assurance",
+            "qa",
+            "test strategy",
+            "regression",
+            "performance testing",
+            "load testing",
+            "test coverage",
+            "defect management",
+            "continuous testing",
+            "test metrics"
+        ],
+        skill_files=["test-case-generation"],
+        system_prompt_template="config/sme/qa_engineer.md",
+        interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
+        description="Expert in quality assurance strategy, testing methodologies, and quality metrics"
+    ),
+
+    "database_expert": SMEPersona(
+        name="Database Expert",
+        persona_id="database_expert",
+        domain="Database Design & Optimization",
+        trigger_keywords=[
+            "database",
+            "schema design",
+            "query optimization",
+            "indexing",
+            "normalization",
+            "denormalization",
+            "replication",
+            "sharding",
+            "nosql",
+            "postgresql"
+        ],
+        skill_files=["architecture-design"],
+        system_prompt_template="config/sme/database_expert.md",
+        interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
+        description="Expert in schema design, query optimization, and database architecture"
+    ),
+
+    "ml_engineer": SMEPersona(
+        name="ML Engineer",
+        persona_id="ml_engineer",
+        domain="Machine Learning Engineering & MLOps",
+        trigger_keywords=[
+            "model training",
+            "inference",
+            "mlops",
+            "model deployment",
+            "feature store",
+            "model registry",
+            "training pipeline",
+            "model monitoring",
+            "gpu optimization",
+            "model serving"
+        ],
+        skill_files=["code-generation"],
+        system_prompt_template="config/sme/ml_engineer.md",
+        interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
+        description="Expert in model training, inference optimization, and MLOps"
     ),
 }
 
