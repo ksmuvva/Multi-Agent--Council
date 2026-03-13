@@ -4,9 +4,12 @@ SME (Subject Matter Expert) Persona Schemas
 Pydantic v2 models for SME persona interactions.
 """
 
+import logging
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import List, Optional, Dict, Any
 from enum import Enum
+
+logger = logging.getLogger("schemas.sme")
 
 
 class SMEInteractionMode(str, Enum):
@@ -172,8 +175,12 @@ class SMEAdvisoryReport(BaseModel):
         }
         expected_field = mode_report_map.get(self.interaction_mode)
         if expected_field and getattr(self, expected_field) is None:
-            # Set a warning but don't fail - the report may be populated later
-            pass
+            logger.warning(
+                "SME report field '%s' is None for interaction_mode '%s' "
+                "- it may be populated later in the pipeline",
+                expected_field,
+                self.interaction_mode.value,
+            )
         # Ensure other mode reports are not populated
         for mode, field_name in mode_report_map.items():
             if mode != self.interaction_mode and getattr(self, field_name) is not None:

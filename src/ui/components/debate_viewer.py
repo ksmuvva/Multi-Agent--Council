@@ -120,138 +120,6 @@ class DebateTranscript:
 
 
 # =============================================================================
-# Mock Debate Generator (for testing)
-# =============================================================================
-
-def generate_mock_debate() -> DebateTranscript:
-    """Generate a mock debate for testing the UI."""
-    now = datetime.now()
-
-    perspectives = [
-        DebatePerspective(
-            perspective_id="prop_1",
-            name="Proponent",
-            description="Argues in favor of the proposition",
-            agent_name="Security Analyst",
-            position="All API endpoints should require authentication by default",
-            opening_statement="Security by default is essential in modern software development. "
-                           "Requiring authentication for all API endpoints prevents unauthorized access "
-                           "and reduces the attack surface significantly.",
-            color="#28a745",
-        ),
-        DebatePerspective(
-            perspective_id="opp_1",
-            name="Opponent",
-            description="Argues against the proposition",
-            agent_name="UX Designer",
-            position="Public APIs have valid use cases that don't require authentication",
-            opening_statement="While security is important, mandating authentication for all endpoints "
-                           "creates unnecessary friction. Public APIs for catalogs, documentation, "
-                           "and status pages serve legitimate purposes without auth.",
-            color="#dc3545",
-        ),
-    ]
-
-    arguments = [
-        # Round 1 - Opening
-        Argument(
-            argument_id="arg_1",
-            speaker="Security Analyst",
-            content="The OWASP Top 10 consistently lists broken access control as a top vulnerability. "
-                   "Default authentication prevents this class of vulnerability entirely.",
-            argument_type=ArgumentType.FACTUAL,
-            strength=PersuasionStrength.STRONG,
-            timestamp=now,
-            phase=DebatePhase.OPENING,
-            evidence=["OWASP Top 10 2021 - A01:2021"],
-            score=0.85,
-        ),
-        Argument(
-            argument_id="arg_2",
-            speaker="UX Designer",
-            content="Consider a public API like GitHub's README endpoint. It's designed for public access. "
-                   "Forcing authentication would break legitimate integrations and increase load.",
-            argument_type=ArgumentType.PRACTICAL,
-            strength=PersuasionStrength.MODERATE,
-            timestamp=now,
-            phase=DebatePhase.OPENING,
-            references=["arg_1"],
-            score=0.70,
-        ),
-        # Round 2 - Rebuttal
-        Argument(
-            argument_id="arg_3",
-            speaker="Security Analyst",
-            content="Opt-in authentication is still superior. Start authenticated, then explicitly expose "
-                   "specific endpoints as public. This creates a secure-by-default audit trail.",
-            argument_type=ArgumentType.LOGICAL,
-            strength=PersuasionStrength.VERY_STRONG,
-            timestamp=now,
-            phase=DebatePhase.REBUTTAL,
-            references=["arg_2"],
-            score=0.90,
-        ),
-        Argument(
-            argument_id="arg_4",
-            speaker="UX Designer",
-            content="That increases development complexity. Teams must remember to mark public endpoints. "
-                   "Forgetting means broken integrations. The cost of errors falls on users.",
-            argument_type=ArgumentType.PRACTICAL,
-            strength=PersuasionStrength.MODERATE,
-            timestamp=now,
-            phase=DebatePhase.REBUTTAL,
-            references=["arg_3"],
-            score=0.75,
-        ),
-    ]
-
-    rounds = [
-        DebateRound(
-            round_number=1,
-            phase=DebatePhase.OPENING,
-            arguments=[arguments[0], arguments[1]],
-            start_time=now,
-        ),
-        DebateRound(
-            round_number=2,
-            phase=DebatePhase.REBUTTAL,
-            arguments=[arguments[2], arguments[3]],
-            start_time=now,
-        ),
-    ]
-
-    consensus = DebateConsensus(
-        consensus_reached=True,
-        final_position="Authentication should be default with explicit opt-out for public endpoints",
-        confidence_score=0.75,
-        winning_perspective="prop_1",
-        synthesis="Both parties agree security is important but disagree on implementation. "
-                  "The consensus is to require authentication by default while allowing "
-                  "explicitly-marked public endpoints. The security benefit of default-auth "
-                  "outweighs the development overhead.",
-        key_agreements=[
-            "Security is a critical concern",
-            "Some endpoints legitimately need public access",
-            "The solution should minimize errors",
-        ],
-        remaining_disagreements=[
-            "Whether the development overhead is acceptable",
-            "How to handle migration of existing systems",
-        ],
-    )
-
-    return DebateTranscript(
-        debate_id=f"debate_{int(now.timestamp())}",
-        topic="Should all API endpoints require authentication by default?",
-        perspectives=perspectives,
-        rounds=rounds,
-        consensus=consensus,
-        start_time=now,
-        end_time=now,
-    )
-
-
-# =============================================================================
 # Rendering Functions
 # =============================================================================
 
@@ -300,17 +168,10 @@ def render_debate_viewer() -> None:
 
 
 def load_debate() -> Optional[DebateTranscript]:
-    """Load a debate from session state or generate mock."""
-    # Check if we have a debate in session
+    """Load a debate from session state."""
     if "current_debate" in st.session_state:
         return st.session_state.current_debate
-
-    # Generate mock for demo
-    if "demo_debate_loaded" not in st.session_state:
-        st.session_state.current_debate = generate_mock_debate()
-        st.session_state.demo_debate_loaded = True
-
-    return st.session_state.get("current_debate")
+    return None
 
 
 def render_empty_debates() -> None:
@@ -329,10 +190,7 @@ def render_empty_debates() -> None:
         </div>
         """, unsafe_allow_html=True)
 
-        if st.button("🎲 Load Demo Debate", use_container_width=True):
-            st.session_state.current_debate = generate_mock_debate()
-            st.session_state.demo_debate_loaded = True
-            st.rerun()
+        st.caption("Run a Tier 3 or 4 task to generate a debate.")
 
 
 def render_debate_header(debate: DebateTranscript) -> None:

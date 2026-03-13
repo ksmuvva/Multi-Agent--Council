@@ -52,7 +52,6 @@ from .debate_viewer import (
     DebateConsensus,
     DebateTranscript,
     render_debate_viewer,
-    generate_mock_debate,
 )
 
 from .enhanced_filters import (
@@ -106,7 +105,6 @@ __all__ = [
     "DebateConsensus",
     "DebateTranscript",
     "render_debate_viewer",
-    "generate_mock_debate",
     # Enhanced filters
     "FilterConfig",
     "AdvancedFilters",

@@ -101,20 +101,31 @@ def render_budget_section() -> None:
     )
     st.session_state.enforce_budget = enforce
 
-    # Current spend (mock)
+    # Current spend (from CostTracker)
+    from ..components.cost_dashboard import get_current_session, get_daily_cost, get_weekly_cost
+
     st.markdown("---")
     st.markdown("#### Current Session Spend")
+
+    session_cost = 0.0
+    current_session = get_current_session()
+    if current_session:
+        session_cost = current_session.total_cost
+
+    daily_cost = get_daily_cost()
+    weekly_costs = get_weekly_cost()
+    weekly_total = sum(weekly_costs.values())
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.metric("This Session", "$0.00")
+        st.metric("This Session", f"${session_cost:.4f}")
 
     with col2:
-        st.metric("Today", "$0.00")
+        st.metric("Today", f"${daily_cost:.4f}")
 
     with col3:
-        st.metric("This Week", "$0.00")
+        st.metric("This Week", f"${weekly_total:.4f}")
 
 
 def render_agent_section() -> None:
