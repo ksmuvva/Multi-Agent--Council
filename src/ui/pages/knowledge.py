@@ -41,8 +41,8 @@ class KnowledgeEntry:
     tags: List[str]
     created_at: datetime
     source: Optional[str] = None
-    related_entries: List[str] = None
-    metadata: Dict[str, Any] = None
+    related_entries: Optional[List[str]] = None
+    metadata: Optional[Dict[str, Any]] = None
 
     def __post_init__(self):
         if self.related_entries is None:
@@ -101,7 +101,11 @@ def parse_knowledge_file(file_path: Path) -> Optional[KnowledgeEntry]:
             related_entries=frontmatter.get("related_entries", []),
             metadata=frontmatter,
         )
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger("knowledge").warning(
+            "Failed to parse knowledge file %s: %s", file_path, e
+        )
         return None
 
 

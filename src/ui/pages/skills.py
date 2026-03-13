@@ -66,7 +66,11 @@ def discover_skills() -> List[Dict[str, Any]]:
                             "tags": metadata.get("tags", []),
                             "path": str(skill_path),
                         })
-                except Exception:
+                except Exception as e:
+                    import logging
+                    logging.getLogger("skills").warning(
+                        "Failed to load skill %s: %s", skill_path.name, e
+                    )
                     continue
 
     return skills

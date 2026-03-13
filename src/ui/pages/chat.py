@@ -511,6 +511,7 @@ def process_user_input(prompt: str, options: Dict[str, Any]) -> None:
     execute_orchestrator_request(full_prompt, tier, output_format, options)
 
     st.rerun()
+    return  # st.rerun() halts execution; explicit return for clarity
 
 
 def execute_orchestrator_request(

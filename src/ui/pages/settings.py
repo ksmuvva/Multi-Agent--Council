@@ -441,6 +441,11 @@ def render_data_section() -> None:
 
     col1, col2, col3 = st.columns(3)
 
+    # Reset confirmation flags on page load (prevents stale flags from prior navigation)
+    for flag in ["confirm_clear", "confirm_clear_results", "confirm_reset"]:
+        if flag not in st.session_state:
+            st.session_state[flag] = False
+
     with col1:
         if st.button("🗑️ Clear Chat History", use_container_width=True):
             if st.session_state.get("confirm_clear"):
@@ -450,6 +455,9 @@ def render_data_section() -> None:
                 st.success("Chat history cleared")
                 st.rerun()
             else:
+                # Reset other confirmation flags when this one is set
+                st.session_state.confirm_clear_results = False
+                st.session_state.confirm_reset = False
                 st.session_state.confirm_clear = True
                 st.warning("Click again to confirm")
 
@@ -462,6 +470,8 @@ def render_data_section() -> None:
                 st.success("Results cleared")
                 st.rerun()
             else:
+                st.session_state.confirm_clear = False
+                st.session_state.confirm_reset = False
                 st.session_state.confirm_clear_results = True
                 st.warning("Click again to confirm")
 
@@ -475,6 +485,8 @@ def render_data_section() -> None:
                 st.success("Settings reset")
                 st.rerun()
             else:
+                st.session_state.confirm_clear = False
+                st.session_state.confirm_clear_results = False
                 st.session_state.confirm_reset = True
                 st.warning("Click again to confirm")
 

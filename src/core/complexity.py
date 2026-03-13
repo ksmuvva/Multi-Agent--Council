@@ -98,7 +98,7 @@ TIER_CONFIG = {
             "Orchestrator", "Analyst", "Planner", "Clarifier",
             "Executor", "Verifier", "Reviewer", "Formatter"
         ],
-        "agent_count": 7,
+        "agent_count": 8,
         "requires_council": False,
         "requires_smes": False,
         "max_sme_count": 0,

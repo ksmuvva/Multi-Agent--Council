@@ -854,14 +854,15 @@ class TestSimulateResponse:
     def test_basic_simulation(self):
         result = _simulate_response({"name": "TestAgent"}, "hello world")
         assert "TestAgent" in result["output"]
-        assert "hello world" in result["output"]
-        assert result["tokens_used"] == 500
-        assert result["cost_usd"] == 0.005
+        assert result["tokens_used"] == 0
+        assert result["cost_usd"] == 0.0
+        assert result["status"] == "error"
+        assert result["error"] == "no_api_configured"
 
     def test_truncation_of_long_input(self):
         long_input = "x" * 500
         result = _simulate_response({"name": "A"}, long_input)
-        # Input is truncated to 200 chars in the output
+        # Input is truncated to 100 chars in the output
         assert "..." in result["output"]
 
     def test_missing_name(self):

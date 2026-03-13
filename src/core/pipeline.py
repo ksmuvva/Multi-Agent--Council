@@ -153,7 +153,7 @@ class ExecutionPipeline:
         self.state.current_phase = phase
 
         # Get agents for this phase
-        agents = self._get_agents_for_phase(phase)
+        agents = self._get_agents_for_phase(phase, context)
 
         # Execute agents
         agent_results = []
@@ -230,6 +230,13 @@ class ExecutionPipeline:
                     # Loop back to earlier phase
                     self._handle_verdict_action(action, initial_context)
                     continue
+                elif action == MatrixAction.PROCEED_TO_FORMATTER:
+                    # Skip Phase 7, proceed directly to Phase 8
+                    get_logger(__name__).info("Verdict: PROCEED_TO_FORMATTER — skipping revision")
+                elif action == MatrixAction.QUALITY_ARBITER:
+                    # Invoke arbiter for dispute resolution
+                    self._handle_verdict_action(action, initial_context)
+                    continue
 
             # Special handling for Phase 7 (Revision) - loop back
             if phase == Phase.PHASE_7_REVISION:
@@ -239,7 +246,12 @@ class ExecutionPipeline:
                     continue
                 else:
                     # Max revisions reached - proceed to Phase 8
-                    pass
+                    get_logger(__name__).warning(
+                        "max_revisions_reached",
+                        revision_cycle=self.state.revision_cycle,
+                        max_revisions=self.max_revisions,
+                        message="Max revisions exhausted; proceeding to Phase 8",
+                    )
 
         self.state.end_time = time.time()
         return self.state
@@ -283,7 +295,7 @@ class ExecutionPipeline:
         # Filter based on tier
         return [p for p in all_phases if not self._should_skip_phase(p)]
 
-    def _get_agents_for_phase(self, phase: Phase) -> List[str]:
+    def _get_agents_for_phase(self, phase: Phase, context: Optional[Dict[str, Any]] = None) -> List[str]:
         """Get the list of agents for a phase."""
         phase_agents = {
             Phase.PHASE_1_TASK_INTELLIGENCE: ["Task Analyst"],
@@ -291,7 +303,7 @@ class ExecutionPipeline:
             Phase.PHASE_3_PLANNING: ["Planner"],
             Phase.PHASE_4_RESEARCH: ["Researcher"],
             Phase.PHASE_5_SOLUTION_GENERATION: ["Executor"],
-            Phase.PHASE_6_REVIEW: self._get_review_agents(),
+            Phase.PHASE_6_REVIEW: self._get_review_agents(context),
             Phase.PHASE_7_REVISION: ["Executor"],
             Phase.PHASE_8_FINAL_REVIEW_FORMATTING: ["Reviewer", "Formatter"],
         }
@@ -325,16 +337,28 @@ class ExecutionPipeline:
 
     def _evaluate_verdict_matrix(self, phase_result: PhaseResult) -> MatrixAction:
         """Evaluate verdict matrix based on review results."""
-        # Extract verdicts from agent results
-        verifier_verdict = Verdict.PASS
-        critic_verdict = Verdict.PASS
+        logger = get_logger(__name__)
+
+        # Extract verdicts from agent results — default FAIL if agent didn't run
+        verifier_verdict = Verdict.FAIL
+        critic_verdict = Verdict.FAIL
+        verifier_ran = False
+        critic_ran = False
 
         for result in phase_result.agent_results:
             if result.agent_name == "Verifier":
-                # Parse verdict from output
                 verifier_verdict = self._parse_verdict(result.output)
+                verifier_ran = True
             elif result.agent_name == "Critic":
                 critic_verdict = self._parse_verdict(result.output)
+                critic_ran = True
+
+        if not verifier_ran:
+            logger.warning("verdict_matrix_default", agent="Verifier",
+                           message="Verifier did not run; defaulting to FAIL")
+        if not critic_ran:
+            logger.warning("verdict_matrix_default", agent="Critic",
+                           message="Critic did not run; defaulting to FAIL")
 
         # Evaluate matrix
         outcome = evaluate_verdict_matrix(
@@ -352,7 +376,12 @@ class ExecutionPipeline:
         if isinstance(output, dict):
             verdict_str = output.get("verdict", "PASS").upper()
             return Verdict.PASS if verdict_str == "PASS" else Verdict.FAIL
-        return Verdict.PASS
+        get_logger(__name__).warning(
+            "parse_verdict_non_dict",
+            output_type=type(output).__name__,
+            message="Non-dict agent output defaulting to FAIL verdict",
+        )
+        return Verdict.FAIL
 
     def _handle_verdict_action(
         self,
@@ -421,7 +450,13 @@ class ExecutionPipeline:
 
         elif action == MatrixAction.QUALITY_ARBITER:
             logger.info("Verdict action: QUALITY_ARBITER - invoking arbiter for dispute resolution")
-            self._invoke_quality_arbiter(context)
+            arbiter_decision = self._invoke_quality_arbiter(context)
+            if arbiter_decision is None:
+                logger.warning(
+                    "arbiter_unavailable",
+                    message="Quality Arbiter could not be invoked; "
+                            "proceeding with existing review results",
+                )
 
     def _extract_flagged_claims(self) -> List[str]:
         """Extract flagged claims from the review phase results."""

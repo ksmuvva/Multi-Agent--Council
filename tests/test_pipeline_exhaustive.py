@@ -256,7 +256,7 @@ class TestExecutionPipeline:
 
     def test_parse_verdict_default(self):
         pipeline = ExecutionPipeline()
-        assert pipeline._parse_verdict("some string") == Verdict.PASS
+        assert pipeline._parse_verdict("some string") == Verdict.FAIL
 
     def test_parse_verdict_missing_key(self):
         pipeline = ExecutionPipeline()

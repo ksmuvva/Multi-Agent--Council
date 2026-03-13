@@ -472,6 +472,11 @@ class ContextCompactor:
         except Exception as e:
             logger = get_logger("compaction")
             logger.warning(f"Failed to read CLAUDE.md for re-orientation: {e}")
+            reorientation_parts.append(
+                "\n## WARNING: CLAUDE.md unavailable for re-orientation\n"
+                "Re-read your agent's CLAUDE.md from config/agents/{your_agent}/CLAUDE.md "
+                "and the root CLAUDE.md to restore system instructions."
+            )
 
         # Add session state
         reorientation_parts.extend([

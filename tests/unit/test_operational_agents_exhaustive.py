@@ -505,7 +505,7 @@ class TestResearcherEdgeCases:
     def test_sme_inputs_boost_confidence(self, researcher):
         result = researcher.research(
             "test topic",
-            sme_inputs={"Security Expert": "This is verified and correct"}
+            sme_inputs={"Security Expert": "This finding is verified and confirmed correct by the security domain expert."}
         )
         high_conf_findings = [
             f for f in result.findings

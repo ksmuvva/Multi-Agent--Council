@@ -401,13 +401,14 @@ def render_workflow_diagram(ensemble: EnsemblePattern) -> None:
         cols = st.columns(len(level))
 
         for j, agent in enumerate(level):
-            with cols[j]:
-                st.markdown(f"""
-                <div class="workflow-node">
-                    <strong>{agent.name}</strong><br>
-                    <small>{agent.role}</small>
-                </div>
-                """, unsafe_allow_html=True)
+            if j < len(cols):
+                with cols[j]:
+                    st.markdown(f"""
+                    <div class="workflow-node">
+                        <strong>{agent.name}</strong><br>
+                        <small>{agent.role}</small>
+                    </div>
+                    """, unsafe_allow_html=True)
 
         # Add arrow between levels
         if i < len(levels) - 1:

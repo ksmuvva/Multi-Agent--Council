@@ -293,8 +293,13 @@ class CostTracker:
             session = self._sessions.get(session_id)
 
             if not session:
-                # Auto-create session
-                session = self.create_session(session_id)
+                # Auto-create session without acquiring _lock again
+                # (create_session also acquires _lock, causing deadlock)
+                session = SessionCosts(
+                    session_id=session_id,
+                    start_time=datetime.now(),
+                )
+                self._sessions[session_id] = session
 
             # Calculate cost
             pricing = MODEL_COSTS[model]
@@ -389,7 +394,12 @@ class CostTracker:
         try:
             from src.config.settings import get_settings
             max_budget = get_settings().max_budget
-        except Exception:
+        except Exception as e:
+            self._logger.warning(
+                "settings_import_failed",
+                error=str(e),
+                message="Using default budget of $5.00",
+            )
             max_budget = 5.0
 
         state = self.get_budget_state(session_id, max_budget)
@@ -560,8 +570,17 @@ class CostLimit:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # Session remains for inspection
-        pass
+        # Log final session cost state for auditing
+        session_state = self.tracker.get_session_state(self.session_id)
+        if session_state:
+            import logging
+            logging.getLogger("cost").info(
+                "CostGuard session %s ended: total_cost=$%.4f, operations=%d",
+                self.session_id,
+                session_state.total_cost,
+                len(session_state.operations),
+            )
+        return False  # Do not suppress exceptions
 
 
 # =============================================================================

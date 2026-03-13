@@ -15,6 +15,8 @@ from enum import Enum
 from collections import defaultdict
 from queue import Queue, Empty
 
+from src.utils.logging import get_logger
+
 
 # =============================================================================
 # Event Types
@@ -108,6 +110,7 @@ class EventEmitter:
         self._event_history: List[Event] = []
         self._max_history = 1000
         self._lock = threading.Lock()
+        self._logger = get_logger("events.emitter")
 
     def subscribe(
         self,

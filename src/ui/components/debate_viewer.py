@@ -102,7 +102,7 @@ class DebateTranscript:
     perspectives: List[DebatePerspective]
     rounds: List[DebateRound]
     consensus: Optional[DebateConsensus] = None
-    start_time: datetime = None
+    start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -436,13 +436,12 @@ def render_argument(argument: Argument, perspectives: List[DebatePerspective]) -
         PersuasionStrength.VERY_STRONG: "💪💪💪💪",
     }
 
-    # Check if speaker is a known SME persona
-    sme_persona_names = [
-        "IAM Architect", "Cloud Architect", "Security Analyst",
-        "Data Engineer", "AI/ML Engineer", "Test Engineer",
-        "Business Analyst", "Technical Writer", "DevOps Engineer",
-        "Frontend Developer",
-    ]
+    # Check if speaker is a known SME persona (loaded from registry)
+    try:
+        from src.core.sme_registry import get_all_personas
+        sme_persona_names = [p.name for p in get_all_personas().values()]
+    except Exception:
+        sme_persona_names = []
     is_sme = argument.speaker in sme_persona_names
     sme_badge_html = (
         ' <span style="background: #28a745; color: white; padding: 2px 8px; '

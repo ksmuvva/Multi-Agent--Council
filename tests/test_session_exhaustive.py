@@ -545,8 +545,8 @@ class TestSessionPersistence:
         session_dir.mkdir()
         (session_dir / "session.json").write_text("not valid json{{{")
 
-        result = sp.load_session("corrupt_sess")
-        assert result is None
+        with pytest.raises(ValueError, match="corrupted"):
+            sp.load_session("corrupt_sess")
 
     def test_delete_session(self, tmp_path, sample_session):
         """Test deleting a session."""

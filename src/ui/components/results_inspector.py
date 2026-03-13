@@ -272,14 +272,13 @@ def render_result_card(result: AgentResult, compact: bool = False) -> None:
     """Render a single result card."""
     meta = result.metadata
 
-    # Determine agent type and colour
+    # Determine agent type and colour using registry data
     council_keywords = ["Council", "Arbiter", "Ethics"]
-    sme_names = [
-        "IAM Architect", "Cloud Architect", "Security Analyst",
-        "Data Engineer", "AI/ML Engineer", "Test Engineer",
-        "Business Analyst", "Technical Writer", "DevOps Engineer",
-        "Frontend Developer",
-    ]
+    try:
+        from src.core.sme_registry import get_all_personas
+        sme_names = [p.name for p in get_all_personas().values()]
+    except Exception:
+        sme_names = []
 
     if any(kw in meta.agent_name for kw in council_keywords):
         agent_type_color = "#FFD700"  # Gold for Council

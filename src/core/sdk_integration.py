@@ -413,19 +413,30 @@ def _simulate_response(
     input_data: str,
 ) -> Dict[str, Any]:
     """
-    Simulate a response when no API is available.
+    Return an error response when no API is available.
 
-    This is the fallback for development/testing without API keys.
-    WARNING: Not for production use - returns simulated data.
+    This fallback clearly indicates that no real processing occurred
+    and provides guidance on configuring API access.
     """
-    get_logger("sdk_integration").warning(
-        f"Using simulated response - no API available for agent '{sdk_kwargs.get('name', 'Agent')}'"
-    )
     agent_name = sdk_kwargs.get("name", "Agent")
+    logger = get_logger("sdk_integration")
+    logger.error(
+        "no_api_available",
+        agent=agent_name,
+        message="Neither Claude SDK nor Anthropic API is available. "
+                "Set ANTHROPIC_API_KEY in .env to enable real agent execution.",
+    )
     return {
-        "output": f"[Simulated output from {agent_name}] Processed: {input_data[:200]}...",
-        "tokens_used": 500,
-        "cost_usd": 0.005,
+        "output": (
+            f"[No API available for {agent_name}] "
+            f"Unable to process request. Please configure ANTHROPIC_API_KEY "
+            f"in your .env file to enable real agent execution. "
+            f"Input received: {input_data[:100]}..."
+        ),
+        "tokens_used": 0,
+        "cost_usd": 0.0,
+        "status": "error",
+        "error": "no_api_configured",
     }
 
 

@@ -1687,9 +1687,11 @@ class TestSDKIntegration:
     def test_simulate_response(self):
         from src.core.sdk_integration import _simulate_response
         result = _simulate_response({"name": "TestAgent"}, "test input")
-        assert "Simulated" in result["output"]
-        assert result["tokens_used"] == 500
-        assert result["cost_usd"] == 0.005
+        assert "TestAgent" in result["output"]
+        assert result["tokens_used"] == 0
+        assert result["cost_usd"] == 0.0
+        assert result["status"] == "error"
+        assert result["error"] == "no_api_configured"
 
 
 # =============================================================================

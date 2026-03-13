@@ -287,6 +287,9 @@ class SessionPersistence:
 
         Returns:
             SessionState if found, None otherwise
+
+        Raises:
+            SessionLoadError: If the session file exists but is corrupted/unreadable
         """
         with self._lock:
             session_path = self.get_session_path(session_id)
@@ -310,13 +313,25 @@ class SessionPersistence:
 
                 return session
 
+            except json.JSONDecodeError as e:
+                self._logger.error(
+                    "session_corrupted",
+                    session_id=session_id,
+                    error=str(e),
+                )
+                raise ValueError(
+                    f"Session '{session_id}' exists but is corrupted: {e}"
+                ) from e
+
             except Exception as e:
                 self._logger.error(
                     "session_load_error",
                     session_id=session_id,
                     error=str(e),
                 )
-                return None
+                raise ValueError(
+                    f"Session '{session_id}' exists but could not be loaded: {e}"
+                ) from e
 
     def list_sessions(
         self,
