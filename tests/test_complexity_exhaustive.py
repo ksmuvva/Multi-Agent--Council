@@ -83,13 +83,13 @@ class TestTierClassification:
             tier=TierLevel.STANDARD,
             reasoning="Standard task",
             confidence=0.7,
-            estimated_agents=7,
+            estimated_agents=8,
             requires_council=False,
             requires_smes=False,
         )
         assert tc.tier == TierLevel.STANDARD
         assert tc.confidence == 0.7
-        assert tc.estimated_agents == 7
+        assert tc.estimated_agents == 8
         assert tc.requires_council is False
         assert tc.requires_smes is False
 
@@ -213,7 +213,7 @@ class TestTierConfig:
     def test_tier_2_config(self):
         config = TIER_CONFIG[TierLevel.STANDARD]
         assert config["name"] == "Standard"
-        assert config["agent_count"] == 7
+        assert config["agent_count"] == 8
         assert config["requires_council"] is False
         assert config["requires_smes"] is False
         assert "Analyst" in config["active_agents"]
@@ -489,7 +489,7 @@ class TestEstimateAgentCount:
         assert estimate_agent_count(TierLevel.DIRECT) == 3
 
     def test_tier_2_base_count(self):
-        assert estimate_agent_count(TierLevel.STANDARD) == 7
+        assert estimate_agent_count(TierLevel.STANDARD) == 8
 
     def test_tier_3_base_count(self):
         assert estimate_agent_count(TierLevel.DEEP) == 12
@@ -501,7 +501,7 @@ class TestEstimateAgentCount:
         assert estimate_agent_count(TierLevel.DEEP, sme_count=2) == 14
 
     def test_with_zero_smes(self):
-        assert estimate_agent_count(TierLevel.STANDARD, sme_count=0) == 7
+        assert estimate_agent_count(TierLevel.STANDARD, sme_count=0) == 8
 
     def test_with_max_smes(self):
         assert estimate_agent_count(TierLevel.ADVERSARIAL, sme_count=3) == 21

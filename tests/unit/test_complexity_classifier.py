@@ -290,7 +290,7 @@ class TestTierConfig:
 
     def test_tier2_agent_count(self):
         """Test Tier 2 has exactly 7 agents."""
-        assert TIER_CONFIG[TierLevel.STANDARD]["agent_count"] == 7
+        assert TIER_CONFIG[TierLevel.STANDARD]["agent_count"] == 8
 
     def test_tier3_agent_count(self):
         """Test Tier 3 has exactly 12 agents."""
@@ -456,7 +456,7 @@ class TestClassifyComplexity:
     def test_tier2_agent_count(self):
         """Test Tier 2 has 7 estimated agents."""
         result = classify_complexity("This is complicated to solve")
-        assert result.estimated_agents == 7
+        assert result.estimated_agents == 8
 
     def test_tier2_escalation_risk_includes_base_and_tier2_bonus(self):
         """Test Tier 2 escalation risk includes tier bonus."""
@@ -1007,7 +1007,7 @@ class TestEstimateAgentCount:
 
     def test_tier2_no_smes(self):
         """Test Tier 2 agent count without SMEs."""
-        assert estimate_agent_count(TierLevel.STANDARD) == 7
+        assert estimate_agent_count(TierLevel.STANDARD) == 8
 
     def test_tier3_no_smes(self):
         """Test Tier 3 agent count without SMEs."""
@@ -1027,7 +1027,7 @@ class TestEstimateAgentCount:
 
     def test_zero_smes(self):
         """Test explicit zero SMEs."""
-        assert estimate_agent_count(TierLevel.STANDARD, sme_count=0) == 7
+        assert estimate_agent_count(TierLevel.STANDARD, sme_count=0) == 8
 
     def test_default_sme_count(self):
         """Test default sme_count is 0."""

@@ -153,7 +153,7 @@ class ExecutionPipeline:
         self.state.current_phase = phase
 
         # Get agents for this phase
-        agents = self._get_agents_for_phase(phase)
+        agents = self._get_agents_for_phase(phase, context=context)
 
         # Execute agents
         agent_results = []
@@ -283,7 +283,7 @@ class ExecutionPipeline:
         # Filter based on tier
         return [p for p in all_phases if not self._should_skip_phase(p)]
 
-    def _get_agents_for_phase(self, phase: Phase) -> List[str]:
+    def _get_agents_for_phase(self, phase: Phase, context: Optional[Dict[str, Any]] = None) -> List[str]:
         """Get the list of agents for a phase."""
         phase_agents = {
             Phase.PHASE_1_TASK_INTELLIGENCE: ["Task Analyst"],
@@ -291,7 +291,7 @@ class ExecutionPipeline:
             Phase.PHASE_3_PLANNING: ["Planner"],
             Phase.PHASE_4_RESEARCH: ["Researcher"],
             Phase.PHASE_5_SOLUTION_GENERATION: ["Executor"],
-            Phase.PHASE_6_REVIEW: self._get_review_agents(),
+            Phase.PHASE_6_REVIEW: self._get_review_agents(context=context),
             Phase.PHASE_7_REVISION: ["Executor"],
             Phase.PHASE_8_FINAL_REVIEW_FORMATTING: ["Reviewer", "Formatter"],
         }

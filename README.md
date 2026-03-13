@@ -107,7 +107,7 @@ graph TD
 
 ```bash
 # Clone the repository
-cd C:\Users\ksmuv\Downloads\Multi-Agent-Reasoning
+cd Multi-Agent--Council
 
 # Create virtual environment
 python -m venv venv

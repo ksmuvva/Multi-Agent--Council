@@ -490,7 +490,7 @@ class OrchestratorAgent:
             # Restore state
             session.current_tier = TierLevel(persist_session.tier)
             session.total_cost_usd = persist_session.total_cost_usd
-            session.active_smes = persist_session.active_agents
+            session.active_smes = getattr(persist_session, 'active_smes', None) or persist_session.active_agents
 
             return session
 
@@ -686,11 +686,11 @@ class OrchestratorAgent:
                 agent_role = ""
 
                 # Handle council agents with role
-                if config_name in ("domain_council_chair", "quality_arbiter", "ethics___safety_advisor"):
+                if config_name in ("domain_council_chair", "quality_arbiter", "ethics_&_safety_advisor"):
                     agent_role = {
                         "domain_council_chair": "chair",
                         "quality_arbiter": "arbiter",
-                        "ethics___safety_advisor": "ethics",
+                        "ethics_&_safety_advisor": "ethics",
                     }.get(config_name, "")
                     config_name = "council"
 

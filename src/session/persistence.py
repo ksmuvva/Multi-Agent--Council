@@ -379,7 +379,12 @@ class SessionPersistence:
                         error=str(e),
                     )
 
-        # Sort
+        # Sort — validate sort_by against SessionSummary fields
+        valid_sort_fields = {"session_id", "created_at", "updated_at", "tier",
+                             "total_messages", "total_agent_outputs", "total_tokens",
+                             "total_cost_usd", "title", "description"}
+        if sort_by not in valid_sort_fields:
+            sort_by = "created_at"
         reverse = descending
         summaries.sort(key=lambda s: getattr(s, sort_by, datetime.min), reverse=reverse)
 

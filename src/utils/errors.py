@@ -131,7 +131,7 @@ class RetryConfig:
             fib = [1, 1]
             for _ in range(2, attempt):
                 fib.append(fib[-1] + fib[-2])
-            delay = self.base_delay * (fib[-2] if len(fib) > 1 else 1)
+            delay = self.base_delay * (fib[-1] if len(fib) > 0 else 1)
 
         elif self.strategy == RetryStrategy.JITTER:
             import random

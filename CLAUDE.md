@@ -73,7 +73,7 @@ User (CLI/Streamlit) → Orchestrator → [Council/SMEs if Tier 3-4] → Operati
 
 ## Quick Reference
 
-- **Project root**: `C:\Users\ksmuv\Downloads\Multi-Agent-Reasoning`
+- **Project root**: Repository root (where this CLAUDE.md resides)
 - **CLI entry**: `src/cli/main.py`
 - **Streamlit app**: `src/ui/app.py`
 - **Schemas**: `src/schemas/`

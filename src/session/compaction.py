@@ -457,7 +457,7 @@ class ContextCompactor:
         # Re-read global CLAUDE.md
         try:
             from pathlib import Path
-            claude_md = Path("CLAUDE.md")
+            claude_md = Path(__file__).parent.parent.parent / "CLAUDE.md"
             if claude_md.exists():
                 content = claude_md.read_text(encoding="utf-8")
                 # Extract key sections
