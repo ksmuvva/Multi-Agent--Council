@@ -101,20 +101,39 @@ def render_budget_section() -> None:
     )
     st.session_state.enforce_budget = enforce
 
-    # Current spend (mock)
+    # Current spend — read from cost tracking session state
     st.markdown("---")
     st.markdown("#### Current Session Spend")
 
     col1, col2, col3 = st.columns(3)
 
+    # Session cost
+    session_cost = 0.0
+    cost_sessions = st.session_state.get("cost_sessions", {})
+    current_sid = st.session_state.get("current_session_id")
+    if current_sid and current_sid in cost_sessions:
+        session_cost = cost_sessions[current_sid].total_cost
+
+    # Daily cost — sum all sessions from today
+    from datetime import date
+    today_cost = 0.0
+    week_cost = 0.0
+    today = date.today()
+    for sess in cost_sessions.values():
+        sess_date = sess.start_time.date()
+        if sess_date == today:
+            today_cost += sess.total_cost
+        if (today - sess_date).days < 7:
+            week_cost += sess.total_cost
+
     with col1:
-        st.metric("This Session", "$0.00")
+        st.metric("This Session", f"${session_cost:.4f}")
 
     with col2:
-        st.metric("Today", "$0.00")
+        st.metric("Today", f"${today_cost:.4f}")
 
     with col3:
-        st.metric("This Week", "$0.00")
+        st.metric("This Week", f"${week_cost:.4f}")
 
 
 def render_agent_section() -> None:

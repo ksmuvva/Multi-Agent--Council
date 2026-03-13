@@ -403,30 +403,21 @@ def _execute_anthropic_api(
             "cost_usd": cost,
         }
 
-    except ImportError:
-        # No SDK available - return simulated response
-        return _simulate_response(sdk_kwargs, input_data)
-
-
-def _simulate_response(
-    sdk_kwargs: Dict[str, Any],
-    input_data: str,
-) -> Dict[str, Any]:
-    """
-    Simulate a response when no API is available.
-
-    This is the fallback for development/testing without API keys.
-    WARNING: Not for production use - returns simulated data.
-    """
-    get_logger("sdk_integration").warning(
-        f"Using simulated response - no API available for agent '{sdk_kwargs.get('name', 'Agent')}'"
-    )
-    agent_name = sdk_kwargs.get("name", "Agent")
-    return {
-        "output": f"[Simulated output from {agent_name}] Processed: {input_data[:200]}...",
-        "tokens_used": 500,
-        "cost_usd": 0.005,
-    }
+    except ImportError as import_err:
+        # No SDK available - raise clear error instead of silently returning fake data
+        logger = get_logger("sdk_integration")
+        agent_name = sdk_kwargs.get("name", "Agent")
+        logger.error(
+            "sdk_not_available",
+            agent=agent_name,
+            error=str(import_err),
+            message="Claude Agent SDK not installed. Install with: pip install claude-agent-sdk",
+        )
+        raise RuntimeError(
+            f"Cannot execute agent '{agent_name}': Claude Agent SDK is not installed. "
+            f"Install it with 'pip install claude-agent-sdk' or set ANTHROPIC_API_KEY "
+            f"for direct API access. Original error: {import_err}"
+        ) from import_err
 
 
 def _validate_output(output: Any, schema: Dict[str, Any]) -> bool:

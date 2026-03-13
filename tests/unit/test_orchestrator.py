@@ -1628,11 +1628,11 @@ class TestPipelinePhaseSkipping:
         assert Phase.PHASE_8_FINAL_REVIEW_FORMATTING in phases
         assert len(phases) == 2
 
-    def test_tier2_skips_council_research_revision(self):
+    def test_tier2_skips_council_and_revision(self):
         pipeline = ExecutionPipeline(tier_level=TierLevel.STANDARD)
         phases = pipeline._get_phases_for_tier()
         assert Phase.PHASE_2_COUNCIL_CONSULTATION not in phases
-        assert Phase.PHASE_4_RESEARCH not in phases
+        assert Phase.PHASE_4_RESEARCH in phases  # Research runs for Tier 2
         assert Phase.PHASE_7_REVISION not in phases
 
     def test_tier3_runs_all_phases(self):

@@ -1684,12 +1684,12 @@ class TestSDKIntegration:
         from src.core.sdk_integration import get_skills_for_sme
         assert get_skills_for_sme("nonexistent") == []
 
-    def test_simulate_response(self):
-        from src.core.sdk_integration import _simulate_response
-        result = _simulate_response({"name": "TestAgent"}, "test input")
-        assert "Simulated" in result["output"]
-        assert result["tokens_used"] == 500
-        assert result["cost_usd"] == 0.005
+    def test_sdk_import_error_raises(self):
+        from unittest.mock import patch
+        from src.core.sdk_integration import _execute_anthropic_api
+        with patch.dict("sys.modules", {"anthropic": None}):
+            with pytest.raises(RuntimeError, match="Cannot execute agent"):
+                _execute_anthropic_api({"name": "TestAgent"}, "test input")
 
 
 # =============================================================================

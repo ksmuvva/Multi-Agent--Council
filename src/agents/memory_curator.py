@@ -788,10 +788,31 @@ class MemoryCuratorAgent:
         return list(set(tags))
 
     def _find_related_topics(self, tags: List[str]) -> List[str]:
-        """Find related knowledge topics by tags."""
-        # In a real implementation, this would search existing knowledge files
-        # For now, return empty list
-        return []
+        """Find related knowledge topics by searching existing knowledge files."""
+        related = []
+        if not tags:
+            return related
+
+        tag_set = set(t.lower() for t in tags)
+
+        for filepath in self.knowledge_dir.glob("*.md"):
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+
+                frontmatter, _ = self._parse_knowledge_file(content)
+                file_tags = set(
+                    t.lower() for t in frontmatter.get("tags", [])
+                )
+                topic = frontmatter.get("topic", filepath.stem)
+
+                # Check for tag overlap
+                if tag_set & file_tags:
+                    related.append(topic)
+            except Exception:
+                continue
+
+        return related[:10]
 
     def _generate_summary(
         self,

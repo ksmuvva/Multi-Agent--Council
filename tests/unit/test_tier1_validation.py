@@ -64,7 +64,6 @@ from src.core.sdk_integration import (
     get_skills_for_agent,
     _get_output_schema,
     _validate_output,
-    _simulate_response,
 )
 from src.schemas.analyst import (
     TaskIntelligenceReport,
@@ -1027,15 +1026,12 @@ class TestSDKIntegrationTier1:
         kwargs = options.to_sdk_kwargs()
         assert kwargs["setting_sources"] == ["user", "project"]
 
-    def test_simulate_response(self):
-        result = _simulate_response(
-            {"name": "Executor"},
-            "Test input",
-        )
-        assert "output" in result
-        assert "Executor" in result["output"]
-        assert result["tokens_used"] == 500
-        assert result["cost_usd"] == 0.005
+    def test_sdk_import_error_raises(self):
+        from unittest.mock import patch
+        from src.core.sdk_integration import _execute_anthropic_api
+        with patch.dict("sys.modules", {"anthropic": None}):
+            with pytest.raises(RuntimeError, match="Cannot execute agent"):
+                _execute_anthropic_api({"name": "Executor"}, "Test input")
 
     def test_validate_output_valid_json(self):
         schema = {"required": ["name", "status"]}
@@ -1062,18 +1058,18 @@ class TestSDKIntegrationTier1:
         schema = {}
         assert _validate_output('{"key": "val"}', schema) is True
 
-    def test_spawn_subagent_with_simulated_fallback(self):
-        """Test spawn_subagent falls back to simulation."""
+    def test_spawn_subagent_without_sdk_returns_error(self):
+        """Test spawn_subagent returns error when SDK is not available."""
         options = ClaudeAgentOptions(
             name="TestAgent",
             model="claude-3-5-sonnet-20241022",
             system_prompt="Test",
             max_turns=10,
         )
-        # This will fall through to _simulate_response since no SDK/API available
+        # Without SDK available, spawn_subagent should return error status
         result = spawn_subagent(options, "Test input", max_retries=0)
-        assert result["status"] in ["success", "error"]
-        assert "output" in result or "error" in result
+        assert result["status"] == "error"
+        assert "error" in result
 
     def test_executor_no_output_schema(self):
         """Executor has no structured output schema (returns raw content)."""

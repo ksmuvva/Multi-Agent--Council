@@ -170,10 +170,10 @@ class TestExecutionPipeline:
         assert pipeline._should_skip_phase(Phase.PHASE_5_SOLUTION_GENERATION) is False
         assert pipeline._should_skip_phase(Phase.PHASE_8_FINAL_REVIEW_FORMATTING) is False
 
-    def test_tier_2_skips_council_research_revision(self):
+    def test_tier_2_skips_council_and_revision(self):
         pipeline = ExecutionPipeline(tier_level=TierLevel.STANDARD)
         assert pipeline._should_skip_phase(Phase.PHASE_2_COUNCIL_CONSULTATION) is True
-        assert pipeline._should_skip_phase(Phase.PHASE_4_RESEARCH) is True
+        assert pipeline._should_skip_phase(Phase.PHASE_4_RESEARCH) is False  # Research runs for Tier 2
         assert pipeline._should_skip_phase(Phase.PHASE_7_REVISION) is True
         assert pipeline._should_skip_phase(Phase.PHASE_1_TASK_INTELLIGENCE) is False
 

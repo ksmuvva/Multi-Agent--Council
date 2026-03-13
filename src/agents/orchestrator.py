@@ -648,7 +648,7 @@ class OrchestratorAgent:
         pipeline: ExecutionPipeline,
         session: SessionState,
         context: Dict[str, Any],
-    ) -> Dict[str, Any]:
+    ) -> "PipelineState":
         """
         Execute the pipeline through all phases.
 
@@ -731,22 +731,113 @@ class OrchestratorAgent:
                         self._log("Budget exceeded mid-phase - returning partial result")
                     return pipeline.state
 
+            # After Phase 1, check if Clarifier should be invoked
+            if phase == Phase.PHASE_1_TASK_INTELLIGENCE:
+                analyst_output = previous_outputs.get("Task Analyst", "")
+                if analyst_output and "missing_info" in str(analyst_output):
+                    # Invoke Clarifier to address missing information
+                    if self.verbose:
+                        self._log("Missing info detected — invoking Clarifier agent")
+                    clarifier_input = self._build_agent_input(
+                        agent_name="Clarifier",
+                        user_prompt=context["user_prompt"],
+                        previous_outputs=previous_outputs,
+                        phase=phase,
+                    )
+                    clarifier_result = self._spawn_agent(
+                        session=session,
+                        agent_name="Clarifier",
+                        system_prompt_template="config/agents/clarifier/CLAUDE.md",
+                        input_data=clarifier_input,
+                        model=self._get_model_for_agent("Clarifier"),
+                    )
+                    previous_outputs["Clarifier"] = clarifier_result.get("output")
+                    session.agent_executions.append(AgentExecution(
+                        agent_name="Clarifier",
+                        start_time=time.time(),
+                        end_time=time.time(),
+                        status=clarifier_result["status"],
+                        output=clarifier_result.get("output"),
+                        tokens_used=clarifier_result.get("tokens_used", 0),
+                        cost_usd=clarifier_result.get("cost_usd", 0.0),
+                    ))
+
             # Handle verdict matrix for Phase 6 (Review)
             if phase == Phase.PHASE_6_REVIEW:
                 action = self._evaluate_verdict(session)
-                if action == MatrixAction.EXECUTOR_REVISE:
+
+                if action == MatrixAction.PROCEED_TO_FORMATTER:
+                    # Both Verifier and Critic passed — continue to Phase 8
+                    if self.verbose:
+                        self._log("Verdict: PROCEED — both verifier and critic passed")
+
+                elif action == MatrixAction.EXECUTOR_REVISE:
                     if session.revision_cycle < session.max_revisions:
                         session.revision_cycle += 1
                         if self.verbose:
-                            self._log(f"Revision cycle {session.revision_cycle}/{session.max_revisions}")
-                        # Re-execute Phase 5 (Executor) then loop back to review
+                            self._log(f"Verdict: REVISE — revision cycle {session.revision_cycle}/{session.max_revisions}")
+                        # Re-execute Phase 5 (Executor) then re-verify
                         self._re_execute_phase(
                             session, context, previous_outputs,
                             Phase.PHASE_5_SOLUTION_GENERATION,
                         )
+                        # Re-run Phase 6 (Review) to verify the revision
+                        self._re_execute_phase(
+                            session, context, previous_outputs,
+                            Phase.PHASE_6_REVIEW,
+                        )
                     else:
                         if self.verbose:
                             self._log("Max revisions reached - proceeding to final review")
+
+                elif action == MatrixAction.RESEARCHER_REVERIFY:
+                    if session.revision_cycle < session.max_revisions:
+                        session.revision_cycle += 1
+                        if self.verbose:
+                            self._log(f"Verdict: REVERIFY — re-running research, revision cycle {session.revision_cycle}")
+                        # Re-execute Phase 4 (Research) then Phase 5 + 6
+                        self._re_execute_phase(
+                            session, context, previous_outputs,
+                            Phase.PHASE_4_RESEARCH,
+                        )
+                        self._re_execute_phase(
+                            session, context, previous_outputs,
+                            Phase.PHASE_5_SOLUTION_GENERATION,
+                        )
+                        self._re_execute_phase(
+                            session, context, previous_outputs,
+                            Phase.PHASE_6_REVIEW,
+                        )
+                    else:
+                        if self.verbose:
+                            self._log("Max revisions reached - proceeding to final review")
+
+                elif action == MatrixAction.FULL_REGENERATION:
+                    if session.revision_cycle < session.max_revisions:
+                        session.revision_cycle += 1
+                        if self.verbose:
+                            self._log(f"Verdict: REGENERATE — full pipeline re-run, revision cycle {session.revision_cycle}")
+                        # Re-execute from Phase 3 through Phase 6
+                        self._re_execute_phase(
+                            session, context, previous_outputs,
+                            Phase.PHASE_3_PLANNING,
+                        )
+                        self._re_execute_phase(
+                            session, context, previous_outputs,
+                            Phase.PHASE_4_RESEARCH,
+                        )
+                        self._re_execute_phase(
+                            session, context, previous_outputs,
+                            Phase.PHASE_5_SOLUTION_GENERATION,
+                        )
+                        self._re_execute_phase(
+                            session, context, previous_outputs,
+                            Phase.PHASE_6_REVIEW,
+                        )
+                    else:
+                        if self.verbose:
+                            self._log("Max revisions reached - proceeding to final review")
+
                 elif action == MatrixAction.QUALITY_ARBITER:
                     # Spawn Quality Arbiter for dispute resolution
                     self._spawn_quality_arbiter(session, context["user_prompt"])
@@ -788,9 +879,17 @@ class OrchestratorAgent:
             if "Critic" in previous_outputs:
                 parts.append(f"\nCritique:\n{previous_outputs['Critic']}")
 
+        elif agent_name in ("Clarifier",):
+            if "Task Analyst" in previous_outputs:
+                parts.append(f"\nTask Analysis:\n{previous_outputs['Task Analyst']}")
+
         elif agent_name in ("Formatter",):
             if "Executor" in previous_outputs:
                 parts.append(f"\nRaw Output to Format:\n{previous_outputs['Executor']}")
+
+        # Add clarification context if available for downstream agents
+        if agent_name not in ("Clarifier", "Task Analyst") and "Clarifier" in previous_outputs:
+            parts.append(f"\nClarifications:\n{previous_outputs['Clarifier']}")
 
         return "\n\n".join(parts)
 
@@ -1170,7 +1269,7 @@ class OrchestratorAgent:
     def _generate_final_response(
         self,
         session: SessionState,
-        pipeline_state: Dict[str, Any],
+        pipeline_state: Any = None,
     ) -> Dict[str, Any]:
         """Generate the final response for the user."""
         # Collect outputs from agents

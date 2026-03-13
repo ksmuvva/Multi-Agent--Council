@@ -480,7 +480,8 @@ def generate_mock_cost_data() -> None:
     st.rerun()
 
 
-# Add a button for generating mock data (for testing)
-if st.session_state.get("show_developer_mode", False):
-    if st.button("🎲 Generate Mock Cost Data"):
-        generate_mock_cost_data()
+def render_developer_cost_tools() -> None:
+    """Render developer-only cost data tools. Call from developer settings panel."""
+    if st.session_state.get("show_developer_mode", False):
+        if st.button("Generate Mock Cost Data", key="mock_cost_btn"):
+            generate_mock_cost_data()

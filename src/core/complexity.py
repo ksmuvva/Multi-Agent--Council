@@ -105,7 +105,7 @@ TIER_CONFIG = {
         "phases": [
             "Phase 1 (Task Intelligence)",
             "Phase 3 (Planning)",
-            "Phase 4 (Clarification if needed)",
+            "Phase 4 (Research)",
             "Phase 5 (Solution Generation)",
             "Phase 6 (Verification)",
             "Phase 8 (Final Review + Formatting)"
@@ -128,7 +128,7 @@ TIER_CONFIG = {
             "Phase 1 (Task Intelligence)",
             "Phase 2 (Council Consultation)",
             "Phase 3 (Planning)",
-            "Phase 4 (Clarification if needed)",
+            "Phase 4 (Research)",
             "Phase 5 (Solution Generation)",
             "Phase 6 (Verification with SME)",
             "Phase 8 (Final Review + Formatting)"

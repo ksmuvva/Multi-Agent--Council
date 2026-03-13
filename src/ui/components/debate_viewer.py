@@ -300,17 +300,18 @@ def render_debate_viewer() -> None:
 
 
 def load_debate() -> Optional[DebateTranscript]:
-    """Load a debate from session state or generate mock."""
-    # Check if we have a debate in session
+    """Load a debate from session state."""
     if "current_debate" in st.session_state:
         return st.session_state.current_debate
 
-    # Generate mock for demo
-    if "demo_debate_loaded" not in st.session_state:
-        st.session_state.current_debate = generate_mock_debate()
-        st.session_state.demo_debate_loaded = True
+    # Check debate history
+    debate_history = st.session_state.get("debate_history", [])
+    if debate_history:
+        # Load the most recent debate
+        st.session_state.current_debate = debate_history[-1]
+        return st.session_state.current_debate
 
-    return st.session_state.get("current_debate")
+    return None
 
 
 def render_empty_debates() -> None:

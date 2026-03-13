@@ -257,11 +257,10 @@ class ExecutionPipeline:
                 Phase.PHASE_8_FINAL_REVIEW_FORMATTING
             ]
 
-        # Tier 2 skips Council, Research, Revision
+        # Tier 2 skips Council and Revision (Research runs for Tier 2+)
         if self.tier_level == TierLevel.STANDARD:
             return phase in [
                 Phase.PHASE_2_COUNCIL_CONSULTATION,
-                Phase.PHASE_4_RESEARCH,
                 Phase.PHASE_7_REVISION
             ]
 

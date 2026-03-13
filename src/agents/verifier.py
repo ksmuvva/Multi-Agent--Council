@@ -425,37 +425,78 @@ class VerifierAgent:
         }
 
     def _verify_general_claim(self, claim: str, content: str) -> Dict[str, Any]:
-        """Verify a general factual claim."""
-        # In a real implementation, this would use WebSearch
-        # to verify the claim against online sources
-
+        """
+        Verify a general factual claim using content cross-referencing
+        and heuristic analysis.
+        """
         claim_lower = claim.lower()
+        content_lower = content.lower()
+        confidence = 6
+        risk = FabricationRisk.MEDIUM
+        method_parts = []
 
-        # Check for common hallucination patterns
+        # 1. Check for common hallucination filler patterns
         hallucination_patterns = [
-            ("demonstrated", "demonstrates"),
-            ("obviously", "obvious"),
-            ("clearly", "clear"),
-            ("everyone knows", "everyone knows"),
-            ("it is well known", "well-known"),
+            "obviously", "clearly", "everyone knows",
+            "it is well known", "as we all know", "undeniably",
+            "without question", "it goes without saying",
         ]
+        filler_count = sum(1 for p in hallucination_patterns if p in claim_lower)
+        if filler_count > 0:
+            confidence -= filler_count * 2
+            risk = FabricationRisk.HIGH if filler_count > 1 else FabricationRisk.MEDIUM
+            method_parts.append(f"Hallucination filler detected ({filler_count})")
 
-        for pattern, marker in hallucination_patterns:
-            if pattern in claim_lower:
-                # Contains filler word = potentially hallucinated
-                return {
-                    "confidence": 4,
-                    "risk": FabricationRisk.MEDIUM,
-                    "method": "Hallucination pattern detection",
-                    "status": VerificationStatus.UNVERIFIED,
-                }
+        # 2. Cross-reference claim against the source content
+        # Extract key terms from the claim (4+ char words)
+        claim_terms = set(re.findall(r'\b\w{4,}\b', claim_lower))
+        content_terms = set(re.findall(r'\b\w{4,}\b', content_lower))
 
-        # Default for general claims
+        if claim_terms:
+            overlap = claim_terms & content_terms
+            overlap_ratio = len(overlap) / len(claim_terms)
+
+            if overlap_ratio >= 0.6:
+                confidence = min(confidence + 2, 9)
+                method_parts.append(f"Content cross-reference: {overlap_ratio:.0%} term overlap")
+            elif overlap_ratio < 0.2:
+                confidence = max(confidence - 2, 1)
+                risk = FabricationRisk.HIGH
+                method_parts.append(f"Low content support: {overlap_ratio:.0%} term overlap")
+            else:
+                method_parts.append(f"Partial content support: {overlap_ratio:.0%} term overlap")
+
+        # 3. Check for self-contradictory statements
+        contradiction_pairs = [
+            ("always", "never"), ("all", "none"), ("increase", "decrease"),
+            ("more", "less"), ("better", "worse"), ("true", "false"),
+        ]
+        for word_a, word_b in contradiction_pairs:
+            if word_a in claim_lower and word_b in claim_lower:
+                confidence = max(confidence - 3, 1)
+                risk = FabricationRisk.HIGH
+                method_parts.append(f"Contradiction detected: '{word_a}' vs '{word_b}'")
+                break
+
+        # 4. Check for unsupported superlatives
+        superlatives = ["best", "worst", "fastest", "most", "least", "greatest", "only"]
+        if any(s in claim_lower.split() for s in superlatives):
+            confidence = max(confidence - 1, 1)
+            method_parts.append("Unsupported superlative detected")
+
+        # 5. Determine verification status
+        if confidence >= 7:
+            status = VerificationStatus.VERIFIED
+        elif confidence <= 3:
+            status = VerificationStatus.CONTRADICTED
+        else:
+            status = VerificationStatus.UNVERIFIED
+
         return {
-            "confidence": 6,
-            "risk": FabricationRisk.MEDIUM,
-            "method": "General claim analysis",
-            "status": VerificationStatus.UNVERIFIED,
+            "confidence": max(1, min(confidence, 10)),
+            "risk": risk,
+            "method": "; ".join(method_parts) if method_parts else "General claim analysis",
+            "status": status,
         }
 
     # ========================================================================

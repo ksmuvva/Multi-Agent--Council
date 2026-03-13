@@ -508,19 +508,19 @@ def process_user_input(prompt: str, options: Dict[str, Any]) -> None:
     add_message(user_message)
 
     # Process with orchestrator then rerun
-    simulate_agent_response(prompt, tier, output_format, options)
+    execute_agent_response(prompt, tier, output_format, options)
 
     st.rerun()
 
 
-def simulate_agent_response(
+def execute_agent_response(
     prompt: str,
     tier: int,
     output_format: str,
     options: Dict[str, Any],
 ) -> None:
     """
-    Simulate an agent response (placeholder for actual integration).
+    Execute user prompt through the multi-agent orchestrator.
 
     Args:
         prompt: User's prompt
@@ -541,20 +541,62 @@ def simulate_agent_response(
 
     add_message(processing_message)
 
-    # Simulate processing delay
-    time.sleep(1)
+    start_time = time.time()
 
-    # Update with response
-    response = generate_mock_response(prompt, tier, output_format)
+    try:
+        from src.agents.orchestrator import create_orchestrator
+        from src.core.complexity import classify_complexity
 
-    processing_message.content = response
-    processing_message.status = MessageStatus.COMPLETED
-    processing_message.metadata = {
-        "tier": tier,
-        "duration": 1.5,
-        "tokens": 150 + tier * 100,
-        "cost": 0.01 + tier * 0.005,
-    }
+        # Create orchestrator with session settings
+        api_key = st.session_state.get("api_key")
+        max_budget = st.session_state.get("max_budget", 5.0)
+        orchestrator = create_orchestrator(
+            api_key=api_key,
+            max_budget_usd=max_budget,
+            verbose=st.session_state.get("verbose", False),
+        )
+
+        # Execute through the real pipeline
+        session_id = st.session_state.get(
+            "session_id", f"ui_{int(datetime.now().timestamp())}"
+        )
+        result = orchestrator.execute(
+            user_prompt=prompt,
+            tier_level=tier,
+            session_id=session_id,
+            format=output_format,
+        )
+
+        duration = time.time() - start_time
+
+        # Extract response from result
+        if isinstance(result, dict):
+            response = result.get("formatted_output", result.get("output", str(result)))
+            tokens = result.get("total_tokens", 0)
+            cost = result.get("total_cost_usd", 0.0)
+        else:
+            response = str(result)
+            tokens = 0
+            cost = 0.0
+
+        processing_message.content = response
+        processing_message.status = MessageStatus.COMPLETED
+        processing_message.metadata = {
+            "tier": tier,
+            "duration": round(duration, 2),
+            "tokens": tokens,
+            "cost": cost,
+        }
+
+    except Exception as e:
+        duration = time.time() - start_time
+        processing_message.content = f"**Error executing query:** {e}\n\nPlease check your API key configuration in Settings."
+        processing_message.status = MessageStatus.ERROR
+        processing_message.metadata = {
+            "tier": tier,
+            "duration": round(duration, 2),
+            "error": str(e),
+        }
 
     # Show download buttons for any artifacts in the response
     if processing_message.artifacts:
@@ -583,90 +625,6 @@ def simulate_agent_response(
                 )
 
     st.rerun()
-
-
-def generate_mock_response(prompt: str, tier: int, output_format: str) -> str:
-    """Generate a mock response (for testing)."""
-    tier_descriptions = {
-        1: "Direct",
-        2: "Standard",
-        3: "Deep",
-        4: "Adversarial",
-    }
-
-    response = f"""# Response to: "{prompt[:50]}..."
-
-**Tier:** {tier_descriptions.get(tier, tier)}
-**Format:** {output_format}
-
-This is a simulated response. The actual multi-agent system will provide
-comprehensive responses based on the complexity tier selected.
-
-## What happens at Tier {tier}?
-
-"""
-
-    if tier == 1:
-        response += """
-- **Executor Agent**: Generates the direct response
-- **Formatter Agent**: Formats output
-
-This tier handles simple, well-defined requests.
-"""
-    elif tier == 2:
-        response += """
-- **Analyst Agent**: Analyzes the request
-- **Planner Agent**: Creates execution plan
-- **Executor Agent**: Generates solution
-- **Verifier Agent**: Validates output
-- **Formatter Agent**: Formats output
-
-This tier handles standard tasks requiring research and planning.
-"""
-    elif tier == 3:
-        response += """
-- **Council Chair**: Selects relevant SMEs
-- **SME Personas**: Provide domain expertise
-- **Analyst Agent**: Deep analysis
-- **Planner Agent**: Comprehensive planning
-- **Researcher Agent**: Extensive research
-- **Executor Agent**: Detailed solution
-- **Verifier Agent**: Thorough validation
-- **Critic Agent**: Quality review
-- **Formatter Agent**: Polished output
-
-This tier handles complex, multi-domain tasks.
-"""
-    else:  # tier 4
-        response += """
-- **Full Council**: Governance and oversight
-- **Quality Arbiter**: Sets quality standards
-- **Ethics Advisor**: Reviews for concerns
-- **Multiple SMEs**: Cross-domain expertise
-- **Self-Play Debate**: Multi-perspective reasoning
-- **Adversarial Critic**: Stress-tests solutions
-- **Full Agent Pipeline**: All operational agents
-- **Reviewer Agent**: Final quality gate
-- **Formatter Agent**: Publication-ready output
-
-This tier handles adversarial, high-stakes tasks requiring the highest quality.
-"""
-
-    response += f"""
-## Next Steps
-
-To use the actual multi-agent system:
-1. Configure your API keys in Settings
-2. The system will automatically route based on tier
-3. Watch the Agent Activity panel for real-time updates
-4. Review results in the Results tab
-
----
-
-*Generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*
-"""
-
-    return response
 
 
 # =============================================================================

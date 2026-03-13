@@ -695,13 +695,13 @@ class TestPipelineExecutionE2E:
         assert Phase.PHASE_7_REVISION not in phases
         assert len(phases) == 2
 
-    def test_tier2_pipeline_skips_council_research_revision(self):
-        """Tier 2 pipeline should skip Council, Research, and Revision."""
+    def test_tier2_pipeline_skips_council_and_revision(self):
+        """Tier 2 pipeline should skip Council and Revision but include Research."""
         pipeline = PipelineBuilder.for_tier(TierLevel.STANDARD)
         phases = pipeline._get_phases_for_tier()
 
         assert Phase.PHASE_2_COUNCIL_CONSULTATION not in phases
-        assert Phase.PHASE_4_RESEARCH not in phases
+        assert Phase.PHASE_4_RESEARCH in phases  # Research runs for Tier 2
         assert Phase.PHASE_7_REVISION not in phases
         assert Phase.PHASE_1_TASK_INTELLIGENCE in phases
         assert Phase.PHASE_3_PLANNING in phases

@@ -31,7 +31,6 @@ from src.core.sdk_integration import (
     get_skills_for_agent,
     get_skills_for_sme,
     create_sdk_mcp_server,
-    _simulate_response,
 )
 
 import src.config.settings as settings_module
@@ -806,16 +805,11 @@ class TestExecuteSdkQuery:
 class TestExecuteAnthropicApi:
     """Tests for the _execute_anthropic_api() function."""
 
-    def test_anthropic_not_available_falls_to_simulation(self):
-        """When anthropic is not importable, fall back to _simulate_response."""
-        with patch(
-            "src.core.sdk_integration._simulate_response",
-            return_value={"output": "simulated", "tokens_used": 500, "cost_usd": 0.005},
-        ) as mock_sim:
-            # Force ImportError for anthropic
-            with patch.dict("sys.modules", {"anthropic": None}):
-                result = _execute_anthropic_api({"name": "Agent"}, "test input")
-            assert result["output"] == "simulated"
+    def test_anthropic_not_available_raises_error(self):
+        """When anthropic is not importable, raise RuntimeError."""
+        with patch.dict("sys.modules", {"anthropic": None}):
+            with pytest.raises(RuntimeError, match="Cannot execute agent"):
+                _execute_anthropic_api({"name": "Agent"}, "test input")
 
     def test_anthropic_api_call(self):
         """Test the direct API call path with mocked Anthropic client."""
@@ -845,28 +839,29 @@ class TestExecuteAnthropicApi:
 
 
 # =============================================================================
-# _simulate_response() Tests
+# SDK Import Error Tests (replaced _simulate_response tests)
 # =============================================================================
 
-class TestSimulateResponse:
-    """Tests for the _simulate_response() function."""
+class TestSDKImportError:
+    """Tests for SDK import error handling."""
 
-    def test_basic_simulation(self):
-        result = _simulate_response({"name": "TestAgent"}, "hello world")
-        assert "TestAgent" in result["output"]
-        assert "hello world" in result["output"]
-        assert result["tokens_used"] == 500
-        assert result["cost_usd"] == 0.005
+    def test_import_error_raises_runtime_error(self):
+        """Verify RuntimeError is raised when SDK is not available."""
+        with patch.dict("sys.modules", {"anthropic": None}):
+            with pytest.raises(RuntimeError, match="Cannot execute agent"):
+                _execute_anthropic_api({"name": "TestAgent"}, "hello world")
 
-    def test_truncation_of_long_input(self):
-        long_input = "x" * 500
-        result = _simulate_response({"name": "A"}, long_input)
-        # Input is truncated to 200 chars in the output
-        assert "..." in result["output"]
+    def test_import_error_includes_agent_name(self):
+        """Verify error message includes agent name."""
+        with patch.dict("sys.modules", {"anthropic": None}):
+            with pytest.raises(RuntimeError, match="TestAgent"):
+                _execute_anthropic_api({"name": "TestAgent"}, "input")
 
-    def test_missing_name(self):
-        result = _simulate_response({}, "input")
-        assert "Agent" in result["output"]
+    def test_import_error_suggests_install(self):
+        """Verify error message suggests installation."""
+        with patch.dict("sys.modules", {"anthropic": None}):
+            with pytest.raises(RuntimeError, match="pip install"):
+                _execute_anthropic_api({"name": "Agent"}, "input")
 
 
 # =============================================================================
