@@ -99,6 +99,8 @@ class SessionState:
     active_smes: List[str] = field(default_factory=list)
     council_activated: bool = False
     escalation_history: List[Dict[str, Any]] = field(default_factory=list)
+    debate_outcome: Any = None
+    debate_alternatives: Optional[str] = None
 
     @property
     def duration_seconds(self) -> float:
@@ -333,6 +335,7 @@ class OrchestratorAgent:
             "summary": result.get("metadata", {}).get("summary", "Query completed"),
             "duration_seconds": result.get("metadata", {}).get("duration_seconds", 0),
             "total_cost_usd": result.get("metadata", {}).get("total_cost_usd", 0),
+            "total_tokens": result.get("metadata", {}).get("total_tokens", 0),
             **result,
         }
 
@@ -602,7 +605,7 @@ class OrchestratorAgent:
         execution = AgentExecution(
             agent_name="Quality Arbiter",
             start_time=time.time(),
-            status=result.get("status", "complete"),
+            status=result.get("status", "success"),
             output=result.get("output"),
             tokens_used=result.get("tokens_used", 0),
             cost_usd=result.get("cost_usd", 0.0),
@@ -632,7 +635,7 @@ class OrchestratorAgent:
         execution = AgentExecution(
             agent_name="Ethics & Safety Advisor",
             start_time=time.time(),
-            status=result.get("status", "complete"),
+            status=result.get("status", "success"),
             output=result.get("output"),
             tokens_used=result.get("tokens_used", 0),
             cost_usd=result.get("cost_usd", 0.0),
@@ -1231,6 +1234,19 @@ class OrchestratorAgent:
         if self.verbose:
             self._log(f"Debate outcome: {outcome.consensus_level}")
 
+        # Store debate outcome in session for downstream use
+        session.debate_outcome = outcome
+
+        # Act on debate outcome
+        from src.core.debate import ConsensusLevel
+        if outcome.consensus_level == ConsensusLevel.SPLIT:
+            if outcome.arbiter_invoked:
+                # Invoke Quality Arbiter to resolve split
+                self._spawn_quality_arbiter(session, context["user_prompt"])
+            else:
+                # Present alternatives — store for final response
+                session.debate_alternatives = outcome.final_resolution
+
     # ========================================================================
     # Escalation
     # ========================================================================
@@ -1289,8 +1305,10 @@ class OrchestratorAgent:
                 "smes_used": session.active_smes,
                 "duration_seconds": round(session.duration_seconds, 2),
                 "total_cost_usd": round(session.total_cost_usd, 4),
+                "total_tokens": sum(e.tokens_used for e in session.agent_executions),
                 "revision_cycles": session.revision_cycle,
                 "debate_rounds": session.debate_rounds,
+                "debate_outcome": str(session.debate_outcome.consensus_level) if session.debate_outcome else None,
             },
         }
 
