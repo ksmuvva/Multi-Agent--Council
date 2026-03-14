@@ -482,19 +482,32 @@ class SMESpawner:
         return corrections[:3]
 
     def _get_default_corrections(self, spawned_sme: SpawnedSME) -> List[str]:
-        """Get default domain corrections."""
-        domain_lower = spawned_sme.domain.lower()
+        """Extract domain corrections from the SME's system prompt."""
+        corrections = []
 
-        if "security" in domain_lower:
-            return ["Follow OWASP security guidelines", "Implement defense in depth"]
-        elif "cloud" in domain_lower:
-            return ["Follow cloud provider best practices", "Use infrastructure as code"]
-        elif "data" in domain_lower:
-            return ["Normalize data schema", "Implement proper indexing"]
-        elif "test" in domain_lower:
-            return ["Increase test coverage", "Add edge case tests"]
-        else:
-            return ["Follow domain best practices", "Consult domain documentation"]
+        prompt_lines = spawned_sme.system_prompt.split("\n")
+
+        # Look for bullet points under key headers in the persona prompt
+        in_considerations = False
+        for line in prompt_lines:
+            lower = line.strip().lower()
+            if any(h in lower for h in [
+                "key considerations", "your contributions",
+                "best practices", "important",
+            ]):
+                in_considerations = True
+                continue
+            if in_considerations and line.strip().startswith(("- ", "* ")):
+                item = line.strip().lstrip("-* ").strip()
+                if len(item) > 10:
+                    corrections.append(item)
+            elif in_considerations and line.strip().startswith("#"):
+                in_considerations = False
+
+        if corrections:
+            return corrections[:3]
+
+        return [f"Follow {spawned_sme.domain} best practices"]
 
     def _identify_missing_considerations(
         self,
