@@ -325,90 +325,19 @@ class ResearcherAgent:
 
     def _build_search_results_for_query(self, query: str) -> List[SearchResult]:
         """
-        Build query-derived search results as a fallback.
+        Return an empty result set when no search backend is available.
 
-        Used only when WebSearch and Anthropic API are both unavailable.
-        Results are marked with lower relevance scores to indicate
-        they are derived, not fetched.
+        Called only when WebSearch and Anthropic API are both unavailable.
+        Rather than fabricating URLs that were never fetched, this returns
+        an empty list so downstream consumers know no real data exists.
         """
-        results = []
-        query_lower = query.lower()
-        slug = re.sub(r'[^a-z0-9]+', '-', query_lower).strip('-')
-
-        # Determine relevant domains based on query keywords
-        domain_map = [
-            (["python", "pip", "django", "flask", "fastapi"],
-             "docs.python.org", "Python Documentation"),
-            (["javascript", "js", "html", "css", "web", "dom", "browser"],
-             "developer.mozilla.org", "MDN Web Docs"),
-            (["react", "node", "npm", "typescript", "webpack"],
-             "npmjs.com", "npm Documentation"),
-            (["aws", "lambda", "s3", "ec2", "dynamodb", "cloudformation"],
-             "docs.aws.amazon.com", "AWS Documentation"),
-            (["azure", "microsoft", ".net", "csharp", "c#"],
-             "azure.microsoft.com", "Microsoft Azure Docs"),
-            (["gcp", "google cloud", "bigquery", "kubernetes", "k8s"],
-             "cloud.google.com", "Google Cloud Documentation"),
-            (["rust", "cargo", "crate"],
-             "crates.io", "Rust Crate Documentation"),
-            (["java", "spring", "maven", "gradle"],
-             "docs.oracle.com", "Oracle Java Documentation"),
-        ]
-
-        matched_domain = None
-        matched_label = None
-        for keywords, domain, label in domain_map:
-            if any(kw in query_lower for kw in keywords):
-                matched_domain = domain
-                matched_label = label
-                break
-
-        if matched_domain:
-            results.append(SearchResult(
-                url=f"https://{matched_domain}/en/latest/{slug}",
-                title=f"[FALLBACK] {matched_label}: {query}",
-                snippet=f"[Derived, not fetched] Official documentation covering {query}. "
-                        f"Includes API references, usage examples, and best practices.",
-                relevance_score=0.35,
-            ))
-        else:
-            results.append(SearchResult(
-                url=f"https://devdocs.io/search/{slug}",
-                title=f"[FALLBACK] DevDocs Reference: {query}",
-                snippet=f"[Derived, not fetched] Developer documentation and API reference for {query}.",
-                relevance_score=0.25,
-            ))
-
-        results.append(SearchResult(
-            url=f"https://stackoverflow.com/questions/tagged/{slug}",
-            title=f"[FALLBACK] Stack Overflow: {query} - Top Questions",
-            snippet=f"[Derived, not fetched] Community answers and discussions about {query}.",
-            relevance_score=0.20,
-        ))
-
-        # Add tutorial/guide result for how-to queries
-        guide_keywords = ["how to", "tutorial", "guide", "best practices", "learn"]
-        if any(kw in query_lower for kw in guide_keywords):
-            results.append(SearchResult(
-                url=f"https://realpython.com/{slug}/",
-                title=f"[FALLBACK] Real Python: {query}",
-                snippet=f"[Derived, not fetched] Tutorial and guide for {query}.",
-                relevance_score=0.15,
-            ))
-        else:
-            results.append(SearchResult(
-                url=f"https://github.com/search?q={slug}",
-                title=f"[FALLBACK] GitHub: {query}",
-                snippet=f"[Derived, not fetched] Open source projects related to {query}.",
-                relevance_score=0.15,
-            ))
-
-        logger.info(
-            "Using fallback-derived search results for query '%s' "
-            "(WebSearch and API both unavailable)", query
+        logger.warning(
+            "No search results available for query '%s' — "
+            "WebSearch and Anthropic API are both unavailable. "
+            "Set ANTHROPIC_API_KEY in .env to enable real web research.",
+            query,
         )
-
-        return results
+        return []
 
     def _fetch_content(self, search_results: List[SearchResult]) -> List[FetchedContent]:
         """

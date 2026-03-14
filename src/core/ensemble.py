@@ -16,6 +16,7 @@ from enum import Enum
 from abc import ABC, abstractmethod
 
 from src.utils.logging import get_logger
+from src.core.sdk_integration import spawn_subagent, ClaudeAgentOptions
 
 logger = get_logger(__name__)
 
@@ -205,8 +206,8 @@ class EnsemblePattern(ABC):
         prior_outputs: Dict[str, Any],
     ) -> str:
         """
-        Generate a structured output for an agent when no SDK executor
-        is available. Produces role-appropriate analytical content.
+        Execute an agent via spawn_subagent when no executor callback
+        is available. Falls back to the SDK/API integration layer.
 
         Args:
             assignment: The agent assignment
@@ -214,47 +215,43 @@ class EnsemblePattern(ABC):
             prior_outputs: Outputs from agents that ran previously
 
         Returns:
-            A structured string output for the agent
+            The agent's output string
         """
-        role = assignment.role
         agent_name = assignment.agent_name
+        role = assignment.role
         deps = assignment.dependencies
 
-        if role == AgentRole.LEAD:
-            return (
-                f"[{agent_name}] Analysis of task: {task_query}. "
-                f"Identified key objectives and decomposed into actionable components "
-                f"for downstream agents."
+        dep_context = ""
+        if deps:
+            for dep in deps:
+                if dep in prior_outputs:
+                    dep_output = prior_outputs[dep]
+                    if isinstance(dep_output, dict):
+                        dep_output = dep_output.get("output", str(dep_output))
+                    dep_context += f"\n--- Output from {dep} ---\n{dep_output}\n"
+
+        prompt = (
+            f"You are '{agent_name}' with role '{role.value}' "
+            f"in the '{self.name}' ensemble.\n\n"
+            f"Task: {task_query}\n"
+        )
+        if dep_context:
+            prompt += f"\nContext from prior agents:{dep_context}\n"
+
+        options = ClaudeAgentOptions(
+            name=agent_name,
+            model=assignment.model or "claude-haiku-4-5-20251001",
+            max_turns=assignment.max_turns,
+        )
+
+        result = spawn_subagent(options=options, input_data=prompt, max_retries=1)
+        output = result.get("output", "")
+        if result.get("status") == "error":
+            logger.warning(
+                "Ensemble agent '%s' execution returned error: %s",
+                agent_name, result.get("error", "unknown"),
             )
-        elif role == AgentRole.QUALITY_GATE:
-            dep_summary = ", ".join(deps) if deps else "prior phases"
-            return (
-                f"[{agent_name}] Quality gate review of outputs from {dep_summary}. "
-                f"Validated correctness, completeness, and adherence to standards. "
-                f"Gate status: PASSED."
-            )
-        elif role == AgentRole.REVIEWER:
-            dep_summary = ", ".join(deps) if deps else "prior phases"
-            return (
-                f"[{agent_name}] Reviewed outputs from {dep_summary}. "
-                f"Assessed quality, identified potential improvements, "
-                f"and confirmed alignment with objectives."
-            )
-        elif role == AgentRole.ADVISOR:
-            return (
-                f"[{agent_name}] Domain expert analysis for: {task_query}. "
-                f"Provided specialized recommendations based on domain knowledge."
-            )
-        elif role == AgentRole.CONTRIBUTOR:
-            dep_summary = ", ".join(deps) if deps else "initial input"
-            return (
-                f"[{agent_name}] Contributed to task based on input from {dep_summary}. "
-                f"Produced deliverable content aligned with ensemble objectives."
-            )
-        else:
-            return (
-                f"[{agent_name}] Observed execution of task: {task_query}."
-            )
+        return output if isinstance(output, str) else str(output)
 
     def _execute_agents_by_phase(
         self,

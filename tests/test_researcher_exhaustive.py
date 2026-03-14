@@ -219,70 +219,19 @@ class TestPerformSearches:
 # ============================================================================
 
 class TestBuildSearchResultsForQuery:
-    @pytest.mark.parametrize("keyword,expected_domain", [
-        ("python basics", "docs.python.org"),
-        ("pip install", "docs.python.org"),
-        ("django rest", "docs.python.org"),
-        ("flask tutorial", "docs.python.org"),
-        ("fastapi guide", "docs.python.org"),
-        ("javascript dom", "developer.mozilla.org"),
-        ("js events", "developer.mozilla.org"),
-        ("html forms", "developer.mozilla.org"),
-        ("css grid", "developer.mozilla.org"),
-        ("aws lambda", "docs.aws.amazon.com"),
-        ("s3 bucket", "docs.aws.amazon.com"),
-        ("ec2 instance", "docs.aws.amazon.com"),
-        ("azure functions", "azure.microsoft.com"),
-        ("microsoft graph", "azure.microsoft.com"),
-        ("gcp bigquery", "cloud.google.com"),
-        ("kubernetes deploy", "cloud.google.com"),
-        ("rust ownership", "crates.io"),
-        ("cargo build", "crates.io"),
-        ("java spring", "docs.oracle.com"),
-        ("maven dependency", "docs.oracle.com"),
-        ("react hooks", "npmjs.com"),
-        ("npm install", "npmjs.com"),
-        ("typescript types", "npmjs.com"),
-    ])
-    def test_domain_matching(self, researcher, keyword, expected_domain):
-        results = researcher._build_search_results_for_query(keyword)
-        primary = results[0]
-        assert expected_domain in primary.url
+    def test_returns_empty_list_when_no_api(self, researcher):
+        """Fallback returns empty list instead of fabricated URLs."""
+        results = researcher._build_search_results_for_query("python asyncio")
+        assert results == []
 
-    def test_default_devdocs_for_unknown(self, researcher):
+    def test_returns_list_type(self, researcher):
         results = researcher._build_search_results_for_query("obscure topic xyz")
-        primary = results[0]
-        assert "devdocs.io" in primary.url
+        assert isinstance(results, list)
 
-    def test_stackoverflow_secondary(self, researcher):
-        results = researcher._build_search_results_for_query("python asyncio")
-        so_results = [r for r in results if "stackoverflow.com" in r.url]
-        assert len(so_results) == 1
-
-    def test_tutorial_tertiary_for_guide_keywords(self, researcher):
-        results = researcher._build_search_results_for_query("python best practices")
-        tutorial = [r for r in results if "realpython.com" in r.url]
-        assert len(tutorial) == 1
-
-    @pytest.mark.parametrize("keyword", ["how to deploy", "tutorial python", "guide for beginners"])
-    def test_tutorial_for_how_to_keywords(self, researcher, keyword):
-        results = researcher._build_search_results_for_query(keyword)
-        tutorial = [r for r in results if "realpython.com" in r.url]
-        assert len(tutorial) == 1
-
-    def test_github_tertiary_for_non_guide(self, researcher):
-        results = researcher._build_search_results_for_query("python asyncio")
-        github = [r for r in results if "github.com" in r.url]
-        assert len(github) == 1
-
-    def test_relevance_scores_order(self, researcher):
-        results = researcher._build_search_results_for_query("python asyncio")
-        # Primary should have highest score
-        assert results[0].relevance_score >= results[1].relevance_score
-
-    def test_returns_at_least_3_results(self, researcher):
-        results = researcher._build_search_results_for_query("python asyncio")
-        assert len(results) == 3
+    def test_no_fabricated_urls(self, researcher):
+        """Ensures no fake URLs are generated."""
+        results = researcher._build_search_results_for_query("aws lambda")
+        assert len(results) == 0
 
 
 # ============================================================================
