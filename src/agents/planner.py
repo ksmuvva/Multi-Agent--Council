@@ -159,13 +159,14 @@ class PlannerAgent:
                 step_number += 1
 
         # Steps based on sub-tasks
-        for i, sub_task in enumerate(analyst_report.sub_tasks, 1):
+        for i, sub_task in enumerate(analyst_report.sub_tasks):
             # Determine agent for this task
             agents = self._assign_agents_to_task(sub_task, sme_selections)
 
-            # Find dependencies
+            # Find dependencies: first sub-task depends on prior steps,
+            # subsequent sub-tasks depend on prior only if not parallelizable
             dependencies = []
-            if i > 0:
+            if i > 0 and not self._can_parallelize(sub_task, steps):
                 dependencies.append(step_number - 1)
 
             steps.append(ExecutionStep(
@@ -464,7 +465,7 @@ class PlannerAgent:
                 # Assume 30% time savings for parallel steps
                 group_duration = sum(
                     complexity_minutes.get(
-                        next(s.estimated_complexity for s in steps if s.step_number == n),
+                        next((s.estimated_complexity for s in steps if s.step_number == n), "low"),
                         5
                     )
                     for n in group.steps
