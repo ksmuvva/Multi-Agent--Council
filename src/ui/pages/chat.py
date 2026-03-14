@@ -6,12 +6,15 @@ reasoning system, including message history, streaming output, and
 agent activity visualization.
 """
 
+import logging
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
+
+logger = logging.getLogger("ui.chat")
 
 import streamlit as st
 
@@ -578,6 +581,7 @@ def execute_orchestrator_request(
         })
 
     except Exception as orch_error:
+        logger.warning("Orchestrator failed, falling back to Anthropic API: %s", orch_error)
         # Try 2: Direct Anthropic API fallback
         try:
             from anthropic import Anthropic
@@ -612,7 +616,8 @@ def execute_orchestrator_request(
                 "source": "anthropic_api_fallback",
             })
 
-        except Exception:
+        except Exception as api_error:
+            logger.error("Both orchestrator and Anthropic API failed: %s", api_error)
             # Try 3: Clear error with guidance
             response_text = (
                 f"**Unable to process request**\n\n"
