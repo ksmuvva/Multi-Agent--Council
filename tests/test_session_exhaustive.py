@@ -1367,11 +1367,7 @@ class TestEdgeCases:
     """Tests for edge cases and error handling."""
 
     def test_empty_session_compaction(self, sample_timestamp):
-        """Test compaction of a session with no messages raises ZeroDivisionError.
-
-        The source code has a division by len(session.messages) in _generate_summary
-        which causes ZeroDivisionError on empty sessions. This documents that behavior.
-        """
+        """Test compaction of a session with no messages handles gracefully."""
         config = CompactionConfig(recent_messages_to_keep=5)
         with patch("src.session.compaction.get_logger", return_value=MagicMock()):
             compactor = ContextCompactor(config=config)
@@ -1382,9 +1378,9 @@ class TestEdgeCases:
             updated_at=sample_timestamp,
             messages=[],
         )
-        # Source code divides by len(session.messages) which is 0
-        with pytest.raises(ZeroDivisionError):
-            compactor.compact_session(session)
+        # Empty session should not crash
+        result = compactor.compact_session(session)
+        assert result.original_count == 0
 
     def test_session_with_only_system_messages(self, sample_timestamp):
         """Test session with only system messages."""
