@@ -299,12 +299,19 @@ def render_cost_trends() -> None:
         return
 
     # Agent cost breakdown
+    model_color_map = {
+        ModelPricing.HAIKU: "#28a745",
+        ModelPricing.SONNET: "#007bff",
+        ModelPricing.OPUS: "#7950f2",
+    }
     agent_costs = {}
+    agent_models = {}
     for cost in current_session.agent_costs:
         if cost.agent_name not in agent_costs:
             agent_costs[cost.agent_name] = {"tokens": 0, "cost": 0.0}
         agent_costs[cost.agent_name]["tokens"] += cost.total_tokens
         agent_costs[cost.agent_name]["cost"] += cost.cost_usd
+        agent_models[cost.agent_name] = cost.model  # Track last model used
 
     if agent_costs:
         # Sort by cost
@@ -318,11 +325,9 @@ def render_cost_trends() -> None:
         fig.add_trace(go.Bar(
             x=agents,
             y=costs,
-            marker_color=[{
-                ModelPricing.HAIKU: "#28a745",
-                ModelPricing.SONNET: "#007bff",
-                ModelPricing.OPUS: "#7950f2",
-            }.get(ModelPricing.HAIKU, "#007bff") for _ in agents],
+            marker_color=[
+                model_color_map.get(agent_models.get(a), "#007bff") for a in agents
+            ],
             text=[f"${c:.4f}" for c in costs],
             textposition="auto",
         ))
