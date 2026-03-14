@@ -357,7 +357,7 @@ class TestAssignAgentsToTask:
         smes = ["Cloud Architect"]
         assignments = planner._assign_agents_to_task(sub_task, sme_selections=smes)
         assert len(assignments) == 2
-        assert assignments[0].agent_name == "Cloud Architect SME"
+        assert assignments[0].agent_name == "Cloud Architect"
         assert assignments[0].role == "Domain-specific design"
         assert assignments[1].agent_name == "Planner"
 

@@ -977,8 +977,9 @@ class FormatterAgent:
                 import yaml
                 yaml.safe_load(code)
             except ImportError:
-                # yaml not available; skip validation
-                pass
+                # yaml not available; log and skip validation
+                import logging
+                logging.getLogger(__name__).warning("PyYAML not installed; skipping YAML validation")
             except yaml.YAMLError as e:
                 valid = False
                 if hasattr(e, "problem_mark") and e.problem_mark is not None:
@@ -1071,7 +1072,11 @@ class FormatterAgent:
             try:
                 return OutputFormat(context["format"].lower())
             except ValueError:
-                pass
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Unknown output format '%s'; falling back to auto-detection",
+                    context["format"],
+                )
 
         # Check content type
         if isinstance(content, dict):

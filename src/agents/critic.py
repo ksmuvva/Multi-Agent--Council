@@ -175,7 +175,7 @@ class CriticAgent:
         # Determine logical structure
         if "because" in solution.lower() or "since" in solution.lower():
             logical_structure = "causal reasoning"
-        elif "if.*then" in solution.lower() or "when.*then" in solution.lower():
+        elif re.search(r"if.*then", solution.lower()) or re.search(r"when.*then", solution.lower()):
             logical_structure = "conditional reasoning"
         else:
             logical_structure = "declarative statements"

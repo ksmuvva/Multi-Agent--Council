@@ -382,25 +382,18 @@ def cost_estimate(
     Returns:
         Dictionary with cost breakdown
     """
-    # Token costs per 1M tokens (approximate)
-    INPUT_COSTS = {
-        "claude-3-5-opus-20240507": 15.0,
-        "claude-3-5-sonnet-20241022": 3.0,
-        "claude-3-5-haiku-20250101": 0.25,
-    }
+    # Use shared pricing from cost module to avoid duplication
+    from src.utils.cost import MODEL_COSTS, ModelPricing, AGENT_TOKEN_COSTS
 
-    OUTPUT_COSTS = {
-        "claude-3-5-opus-20240507": 75.0,
-        "claude-3-5-sonnet-20241022": 15.0,
-        "claude-3-5-haiku-20250101": 1.25,
-    }
+    INPUT_COSTS = {m.value: v["input"] for m, v in MODEL_COSTS.items()}
+    OUTPUT_COSTS = {m.value: v["output"] for m, v in MODEL_COSTS.items()}
 
     # Model selection by tier
     TIER_MODELS = {
-        1: "claude-3-5-haiku-20250101",  # Fast, cheap
-        2: "claude-3-5-sonnet-20241022",
-        3: "claude-3-5-opus-20240507",
-        4: "claude-3-5-opus-20240507",  # Adversarial needs best
+        1: ModelPricing.HAIKU.value,
+        2: ModelPricing.SONNET.value,
+        3: ModelPricing.OPUS.value,
+        4: ModelPricing.OPUS.value,
     }
 
     model = TIER_MODELS.get(tier, "claude-3-5-sonnet-20241022")

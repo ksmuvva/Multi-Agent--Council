@@ -908,8 +908,8 @@ class MemoryCuratorAgent:
             return filename
 
         except Exception as e:
-            # Log error but don't fail
-            print(f"Warning: Failed to write knowledge file: {e}")
+            import logging
+            logging.getLogger(__name__).warning("Failed to write knowledge file: %s", e)
             return None
 
     # ========================================================================
@@ -984,8 +984,9 @@ class MemoryCuratorAgent:
         if HAS_YAML:
             try:
                 frontmatter = yaml.safe_load(frontmatter_text) or {}
-            except yaml.YAMLError:
-                pass
+            except yaml.YAMLError as e:
+                import logging
+                logging.getLogger(__name__).warning("Failed to parse YAML frontmatter: %s", e)
 
         return frontmatter, body
 

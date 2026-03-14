@@ -9,6 +9,7 @@ import re
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from src.schemas.verifier import (
     VerificationReport,
@@ -58,6 +59,9 @@ class VerifierAgent:
         self.model = model
         self.max_turns = max_turns
         self.system_prompt = self._load_system_prompt()
+
+        # Tool executor for WebSearch verification (set by orchestrator when available)
+        self._tool_executor = None
 
         # Patterns that indicate factual claims
         self.claim_patterns = [
@@ -377,7 +381,6 @@ class VerifierAgent:
                 }
 
             # Check domain
-            from urllib.parse import urlparse
             parsed = urlparse(url)
             if not parsed.netloc:
                 return {
@@ -425,13 +428,49 @@ class VerifierAgent:
         }
 
     def _verify_general_claim(self, claim: str, content: str) -> Dict[str, Any]:
-        """Verify a general factual claim."""
-        # In a real implementation, this would use WebSearch
-        # to verify the claim against online sources
+        """Verify a general factual claim.
 
+        Attempts WebSearch verification when a tool executor is available.
+        Falls back to heuristic pattern analysis for offline operation.
+        """
         claim_lower = claim.lower()
 
-        # Check for common hallucination patterns
+        # Attempt real WebSearch verification if tool executor is available
+        if hasattr(self, '_tool_executor') and self._tool_executor:
+            try:
+                raw = self._tool_executor("WebSearch", {"query": claim, "max_results": 3})
+                if isinstance(raw, list) and raw:
+                    # Check if any result corroborates the claim
+                    snippets = " ".join(r.get("snippet", "") for r in raw).lower()
+                    claim_words = set(claim_lower.split())
+                    snippet_words = set(snippets.split())
+                    overlap = len(claim_words & snippet_words) / max(len(claim_words), 1)
+
+                    if overlap > 0.5:
+                        return {
+                            "confidence": 8,
+                            "risk": FabricationRisk.LOW,
+                            "method": "WebSearch corroboration",
+                            "status": VerificationStatus.VERIFIED,
+                        }
+                    elif overlap > 0.2:
+                        return {
+                            "confidence": 5,
+                            "risk": FabricationRisk.MEDIUM,
+                            "method": "WebSearch partial match",
+                            "status": VerificationStatus.UNVERIFIED,
+                        }
+                    else:
+                        return {
+                            "confidence": 3,
+                            "risk": FabricationRisk.HIGH,
+                            "method": "WebSearch no corroboration",
+                            "status": VerificationStatus.UNVERIFIED,
+                        }
+            except Exception:
+                pass  # Fall through to heuristic analysis
+
+        # Heuristic: check for common hallucination patterns
         hallucination_patterns = [
             ("demonstrated", "demonstrates"),
             ("obviously", "obvious"),
@@ -440,9 +479,8 @@ class VerifierAgent:
             ("it is well known", "well-known"),
         ]
 
-        for pattern, marker in hallucination_patterns:
+        for pattern, _marker in hallucination_patterns:
             if pattern in claim_lower:
-                # Contains filler word = potentially hallucinated
                 return {
                     "confidence": 4,
                     "risk": FabricationRisk.MEDIUM,
@@ -450,9 +488,22 @@ class VerifierAgent:
                     "status": VerificationStatus.UNVERIFIED,
                 }
 
-        # Default for general claims
+        # Check if the claim is supported by the content itself
+        content_lower = content.lower() if content else ""
+        claim_words = set(claim_lower.split()) - {"the", "a", "an", "is", "are", "was", "were", "in", "on", "at", "to", "for"}
+        if content_lower:
+            content_words = set(content_lower.split())
+            overlap = len(claim_words & content_words) / max(len(claim_words), 1)
+            if overlap > 0.6:
+                return {
+                    "confidence": 7,
+                    "risk": FabricationRisk.LOW,
+                    "method": "Content cross-reference",
+                    "status": VerificationStatus.UNVERIFIED,
+                }
+
         return {
-            "confidence": 6,
+            "confidence": 5,
             "risk": FabricationRisk.MEDIUM,
             "method": "General claim analysis",
             "status": VerificationStatus.UNVERIFIED,
