@@ -648,10 +648,12 @@ class CriticAgent:
         attacks = []
 
         for attack in domain_attacks:
-            sme = next(
-                (sme for sme, inputs in sme_inputs.items() if attack in inputs),
-                "Unknown"
-            )
+            sme = "Unknown"
+            if sme_inputs:
+                sme = next(
+                    (s for s, inputs in sme_inputs.items() if attack in inputs),
+                    "Unknown",
+                )
 
             attacks.append(Attack(
                 vector=AttackVector.RED_TEAM,
