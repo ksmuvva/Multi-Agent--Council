@@ -295,7 +295,17 @@ class TestExecutionPipeline:
             AgentResult("A", "success", {"data": "result"}, 100),
             AgentResult("B", "success", {"data": "result2"}, 100),
         ]
-        assert pipeline._extract_phase_output(results) == {"data": "result"}
+        output = pipeline._extract_phase_output(results)
+        assert output == {"A": {"data": "result"}, "B": {"data": "result2"}}
+
+    def test_extract_output_single_agent(self):
+        pipeline = ExecutionPipeline()
+        results = [
+            AgentResult("A", "success", {"data": "result"}, 100),
+        ]
+        output = pipeline._extract_phase_output(results)
+        # Single-agent phases return the output directly
+        assert output == {"data": "result"}
 
     def test_extract_output_empty(self):
         pipeline = ExecutionPipeline()
@@ -352,11 +362,11 @@ class TestExecutionPipeline:
 
     # --------- Invoke Quality Arbiter ---------
 
-    def test_invoke_quality_arbiter(self):
+    def test_invoke_quality_arbiter_requires_executor(self):
         pipeline = ExecutionPipeline()
         context = {}
-        pipeline._invoke_quality_arbiter(context)
-        assert context.get("require_arbiter") is True
+        with pytest.raises(ValueError, match="agent_executor missing"):
+            pipeline._invoke_quality_arbiter(context)
 
 
 # =============================================================================

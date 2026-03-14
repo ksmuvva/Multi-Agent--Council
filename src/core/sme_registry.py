@@ -67,7 +67,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "identity governance",
             "lifecycle management"
         ],
-        skill_files=["sailpoint-test-engineer", "azure-architect"],
+        skill_files=["architecture-design"],
         system_prompt_template="config/sme/iam_architect.md",
         interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
         description="Expert in identity governance, SailPoint, CyberArk, and Azure AD"
@@ -93,7 +93,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "lambda",
             "functions"
         ],
-        skill_files=["azure-architect"],
+        skill_files=["architecture-design"],
         system_prompt_template="config/sme/cloud_architect.md",
         interaction_modes=[
             InteractionMode.ADVISOR,
@@ -121,7 +121,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "csrf",
             "security review"
         ],
-        skill_files=["azure-architect"],
+        skill_files=["architecture-design", "web-research"],
         system_prompt_template="config/sme/security_analyst.md",
         interaction_modes=[InteractionMode.ADVISOR, InteractionMode.DEBATER],
         description="Expert in threat modeling, OWASP, and secure development practices"
@@ -145,7 +145,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "data modeling",
             "analytics"
         ],
-        skill_files=["data-scientist"],
+        skill_files=["web-research"],
         system_prompt_template="config/sme/data_engineer.md",
         interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
         description="Expert in data pipelines, ETL/ELT, databases, and data modeling"
@@ -169,7 +169,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "inference",
             "model deployment"
         ],
-        skill_files=["ai-engineer", "genai-system-design"],
+        skill_files=["architecture-design", "web-research"],
         system_prompt_template="config/sme/ai_ml_engineer.md",
         interaction_modes=[
             InteractionMode.ADVISOR,
@@ -196,7 +196,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "testing strategy",
             "quality assurance"
         ],
-        skill_files=["sailpoint-test-engineer", "euroclear-test-cases"],
+        skill_files=["test-case-generation"],
         system_prompt_template="config/sme/test_engineer.md",
         interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
         description="Expert in test strategy, test automation, and quality assurance"
@@ -218,7 +218,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "workflow",
             "use cases"
         ],
-        skill_files=["bpm-consultant", "vibe-requirements"],
+        skill_files=["requirements-engineering"],
         system_prompt_template="config/sme/business_analyst.md",
         interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
         description="Expert in requirements gathering, process analysis, and BPMN"
@@ -239,7 +239,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "technical writing",
             "documentation structure"
         ],
-        skill_files=["human-like-writing", "tender-writing-expert"],
+        skill_files=["document-creation"],
         system_prompt_template="config/sme/technical_writer.md",
         interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
         description="Expert in technical documentation, proposals, and communication"
@@ -262,7 +262,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "continuous integration",
             "continuous deployment"
         ],
-        skill_files=["azure-architect"],
+        skill_files=["architecture-design"],
         system_prompt_template="config/sme/devops_engineer.md",
         interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
         description="Expert in CI/CD, containers, Kubernetes, and infrastructure automation"
@@ -285,7 +285,7 @@ SME_REGISTRY: Dict[str, SMEPersona] = {
             "css",
             "javascript"
         ],
-        skill_files=["frontend-design"],
+        skill_files=["code-generation"],
         system_prompt_template="config/sme/frontend_developer.md",
         interaction_modes=[InteractionMode.ADVISOR, InteractionMode.CO_EXECUTOR],
         description="Expert in Streamlit, React, UI design, and frontend development"

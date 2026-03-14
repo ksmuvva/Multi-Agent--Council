@@ -57,7 +57,7 @@ class ResearcherAgent:
     def __init__(
         self,
         system_prompt_path: str = "config/agents/researcher/CLAUDE.md",
-        model: str = "claude-3-5-sonnet-20241022",
+        model: str = "claude-sonnet-4-20250514",
         max_turns: int = 30,
     ):
         """
@@ -828,7 +828,7 @@ class ResearcherAgent:
 
 def create_researcher(
     system_prompt_path: str = "config/agents/researcher/CLAUDE.md",
-    model: str = "claude-3-5-sonnet-20241022",
+    model: str = "claude-sonnet-4-20250514",
 ) -> ResearcherAgent:
     """Create a configured Researcher agent."""
     return ResearcherAgent(

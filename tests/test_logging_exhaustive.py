@@ -665,7 +665,7 @@ class TestLogCost:
             mock_logger = MagicMock()
             mock_get.return_value = mock_logger
 
-            log_cost(1000, 0.01, "claude-3-5-sonnet-20241022", "query")
+            log_cost(1000, 0.01, "claude-sonnet-4-20250514", "query")
             mock_logger.debug.assert_called_once()
 
     def test_passes_cost_info(self):
@@ -673,11 +673,11 @@ class TestLogCost:
             mock_logger = MagicMock()
             mock_get.return_value = mock_logger
 
-            log_cost(5000, 0.05, "claude-3-5-opus-20240507", "spawn_subagent")
+            log_cost(5000, 0.05, "claude-opus-4-20250514", "spawn_subagent")
             call_kwargs = mock_logger.debug.call_args[1]
             assert call_kwargs["tokens"] == 5000
             assert call_kwargs["cost_usd"] == 0.05
-            assert call_kwargs["model"] == "claude-3-5-opus-20240507"
+            assert call_kwargs["model"] == "claude-opus-4-20250514"
             assert call_kwargs["operation"] == "spawn_subagent"
 
     def test_extra_kwargs_forwarded(self):

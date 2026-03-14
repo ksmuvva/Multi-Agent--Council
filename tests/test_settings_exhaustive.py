@@ -270,8 +270,8 @@ class TestSettings:
 
     def test_get_model_info(self):
         settings = Settings(anthropic_api_key="key")
-        info = settings.get_model_info("claude-3-5-sonnet-20241022")
-        assert info["model_id"] == "claude-3-5-sonnet-20241022"
+        info = settings.get_model_info("claude-sonnet-4-20250514")
+        assert info["model_id"] == "claude-sonnet-4-20250514"
         assert info["provider"] == "anthropic"
         assert info["api_key_configured"] is True
 

@@ -106,7 +106,7 @@ class TestSMESpawnerInitialization:
             skills_dir=str(tmp_path / "skills"),
             sme_templates_dir=str(tmp_path / "templates"),
         )
-        assert spawner.model == "claude-3-5-sonnet-20241022"
+        assert spawner.model == "claude-sonnet-4-20250514"
 
     def test_directories_created(self, tmp_path):
         """Test directories are created."""
@@ -442,4 +442,4 @@ class TestConvenienceFunction:
     def test_create_sme_spawner_defaults(self):
         """Test convenience function uses defaults."""
         spawner = create_sme_spawner()
-        assert spawner.model == "claude-3-5-sonnet-20241022"
+        assert spawner.model == "claude-sonnet-4-20250514"

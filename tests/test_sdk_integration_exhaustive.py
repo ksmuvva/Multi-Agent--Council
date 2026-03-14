@@ -89,11 +89,11 @@ class TestClaudeAgentOptions:
         """name, model, system_prompt are required."""
         opts = ClaudeAgentOptions(
             name="TestAgent",
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-20250514",
             system_prompt="You are a test agent.",
         )
         assert opts.name == "TestAgent"
-        assert opts.model == "claude-3-5-sonnet-20241022"
+        assert opts.model == "claude-sonnet-4-20250514"
         assert opts.system_prompt == "You are a test agent."
 
     def test_default_values(self):
@@ -110,7 +110,7 @@ class TestClaudeAgentOptions:
     def test_custom_values(self):
         opts = ClaudeAgentOptions(
             name="Executor",
-            model="claude-3-5-opus-20240507",
+            model="claude-opus-4-20250514",
             system_prompt="Execute tasks.",
             max_turns=50,
             allowed_tools=["Read", "Write", "Bash"],
@@ -237,7 +237,7 @@ class TestClaudeAgentOptions:
     def test_to_sdk_kwargs_full(self):
         opts = ClaudeAgentOptions(
             name="Executor",
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-20250514",
             system_prompt="Execute.",
             max_turns=50,
             allowed_tools=["Read", "Write", "Bash"],
@@ -425,7 +425,7 @@ class TestBuildAgentOptions:
     @patch("src.core.sdk_integration.get_settings")
     @patch("src.core.sdk_integration.get_model_for_agent")
     def test_basic_build(self, mock_model, mock_settings):
-        mock_model.return_value = "claude-3-5-sonnet-20241022"
+        mock_model.return_value = "claude-sonnet-4-20250514"
         mock_settings.return_value = MagicMock(
             max_turns_orchestrator=200,
             max_turns_subagent=30,
@@ -433,7 +433,7 @@ class TestBuildAgentOptions:
         )
         opts = build_agent_options("analyst", "You are an analyst.")
         assert opts.name == "Analyst"
-        assert opts.model == "claude-3-5-sonnet-20241022"
+        assert opts.model == "claude-sonnet-4-20250514"
         assert opts.system_prompt == "You are an analyst."
         assert opts.max_turns == 30
         assert opts.allowed_tools == ["Read", "Glob", "Grep"]
@@ -442,7 +442,7 @@ class TestBuildAgentOptions:
     @patch("src.core.sdk_integration.get_settings")
     @patch("src.core.sdk_integration.get_model_for_agent")
     def test_executor_permission_mode(self, mock_model, mock_settings):
-        mock_model.return_value = "claude-3-5-sonnet-20241022"
+        mock_model.return_value = "claude-sonnet-4-20250514"
         mock_settings.return_value = MagicMock(
             max_turns_orchestrator=200,
             max_turns_subagent=30,
@@ -835,7 +835,7 @@ class TestExecuteAnthropicApi:
 
         with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
             result = _execute_anthropic_api(
-                {"model": "claude-3-5-sonnet-20241022", "system_prompt": "sys"},
+                {"model": "claude-sonnet-4-20250514", "system_prompt": "sys"},
                 "test input",
             )
             assert isinstance(result, dict)
@@ -851,22 +851,32 @@ class TestExecuteAnthropicApi:
 class TestSimulateResponse:
     """Tests for the _simulate_response() function."""
 
-    def test_basic_simulation(self):
+    def test_basic_simulation(self, monkeypatch):
+        monkeypatch.setenv("ALLOW_SIMULATION", "true")
         result = _simulate_response({"name": "TestAgent"}, "hello world")
         assert "TestAgent" in result["output"]
         assert "hello world" in result["output"]
         assert result["tokens_used"] == 500
         assert result["cost_usd"] == 0.005
 
-    def test_truncation_of_long_input(self):
+    def test_truncation_of_long_input(self, monkeypatch):
+        monkeypatch.setenv("ALLOW_SIMULATION", "true")
         long_input = "x" * 500
         result = _simulate_response({"name": "A"}, long_input)
         # Input is truncated to 200 chars in the output
         assert "..." in result["output"]
 
-    def test_missing_name(self):
+    def test_missing_name(self, monkeypatch):
+        monkeypatch.setenv("ALLOW_SIMULATION", "true")
         result = _simulate_response({}, "input")
         assert "Agent" in result["output"]
+
+    def test_simulation_blocked_without_env_var(self):
+        """Simulation should raise RuntimeError when ALLOW_SIMULATION is not set."""
+        import os
+        os.environ.pop("ALLOW_SIMULATION", None)
+        with pytest.raises(RuntimeError, match="ALLOW_SIMULATION"):
+            _simulate_response({"name": "A"}, "input")
 
 
 # =============================================================================

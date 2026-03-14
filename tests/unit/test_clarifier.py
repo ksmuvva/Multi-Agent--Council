@@ -112,7 +112,7 @@ class TestClarifierInitialization:
     def test_default_initialization(self):
         """Test default init parameters."""
         agent = ClarifierAgent(system_prompt_path="nonexistent.md")
-        assert agent.model == "claude-3-5-sonnet-20241022"
+        assert agent.model == "claude-sonnet-4-20250514"
         assert agent.max_turns == 30
 
     def test_priority_weights_set(self):

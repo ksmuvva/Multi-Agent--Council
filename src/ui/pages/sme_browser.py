@@ -11,16 +11,12 @@ from enum import Enum
 
 import streamlit as st
 
+from src.core.sme_registry import InteractionMode
+
 
 # =============================================================================
 # SME Data Structures
 # =============================================================================
-
-class InteractionMode(str, Enum):
-    """SME interaction modes."""
-    ADVISOR = "advisor"
-    CO_EXECUTOR = "co-executor"
-    DEBATER = "debater"
 
 
 class SMEDomain(str, Enum):

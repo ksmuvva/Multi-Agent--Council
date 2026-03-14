@@ -33,7 +33,7 @@ class AnalystAgent:
     def __init__(
         self,
         system_prompt_path: str = "config/agents/analyst/CLAUDE.md",
-        model: str = "claude-3-5-sonnet-20241022",
+        model: str = "claude-sonnet-4-20250514",
         max_turns: int = 30,
     ):
         """
@@ -514,7 +514,7 @@ class AnalystAgent:
 
 def create_analyst(
     system_prompt_path: str = "config/agents/analyst/CLAUDE.md",
-    model: str = "claude-3-5-sonnet-20241022",
+    model: str = "claude-sonnet-4-20250514",
 ) -> AnalystAgent:
     """Create a configured Analyst agent."""
     return AnalystAgent(

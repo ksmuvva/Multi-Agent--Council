@@ -49,7 +49,7 @@ class TestVerifierInitialization:
     def test_default_initialization(self):
         """Test default init parameters."""
         agent = VerifierAgent(system_prompt_path="nonexistent.md")
-        assert agent.model == "claude-3-5-opus-20240507"
+        assert agent.model == "claude-opus-4-20250514"
         assert agent.max_turns == 30
 
     def test_claim_patterns_initialized(self):

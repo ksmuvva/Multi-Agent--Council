@@ -35,6 +35,8 @@ from pathlib import Path
 from dataclasses import dataclass
 from enum import Enum
 
+from src.core.models import MODEL_HAIKU, MODEL_SONNET, MODEL_OPUS
+
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
     PYDANTIC_SETTINGS_AVAILABLE = True
@@ -80,21 +82,21 @@ DEFAULT_MODEL_MAPPINGS: Dict[LLMProvider, ModelMapping] = {
     LLMProvider.ANTHROPIC: ModelMapping(
         provider=LLMProvider.ANTHROPIC,
         models={
-            "default": "claude-3-5-sonnet-20241022",
-            "orchestrator": "claude-3-5-opus-20240507",
-            "council": "claude-3-5-opus-20240507",
-            "analyst": "claude-3-5-sonnet-20241022",
-            "planner": "claude-3-5-sonnet-20241022",
-            "clarifier": "claude-3-5-haiku-20241022",
-            "researcher": "claude-3-5-sonnet-20241022",
-            "executor": "claude-3-5-sonnet-20241022",
-            "code_reviewer": "claude-3-5-sonnet-20241022",
-            "verifier": "claude-3-5-opus-20240507",
-            "critic": "claude-3-5-opus-20240507",
-            "reviewer": "claude-3-5-opus-20240507",
-            "formatter": "claude-3-5-sonnet-20241022",
-            "memory_curator": "claude-3-5-sonnet-20241022",
-            "sme": "claude-3-5-sonnet-20241022",
+            "default": MODEL_SONNET,
+            "orchestrator": MODEL_OPUS,
+            "council": MODEL_OPUS,
+            "analyst": MODEL_SONNET,
+            "planner": MODEL_SONNET,
+            "clarifier": MODEL_HAIKU,
+            "researcher": MODEL_SONNET,
+            "executor": MODEL_SONNET,
+            "code_reviewer": MODEL_SONNET,
+            "verifier": MODEL_OPUS,
+            "critic": MODEL_OPUS,
+            "reviewer": MODEL_OPUS,
+            "formatter": MODEL_SONNET,
+            "memory_curator": MODEL_SONNET,
+            "sme": MODEL_SONNET,
         },
     ),
     LLMProvider.OPENAI: ModelMapping(
@@ -516,7 +518,7 @@ class Settings(BaseSettings):
         Example:
             settings = get_settings()
             model = settings.get_model_for_agent("orchestrator")
-            # Returns "claude-3-5-opus-20240507" for Anthropic provider
+            # Returns "claude-opus-4-20250514" for Anthropic provider
             # Returns "gpt-4o" for OpenAI provider
         """
         # Normalize agent name
@@ -546,7 +548,7 @@ class Settings(BaseSettings):
             return default_model
 
         # Ultimate fallback
-        return self.default_model or "claude-3-5-sonnet-20241022"
+        return self.default_model or MODEL_SONNET
 
     def get_provider_config(self) -> Dict[str, Any]:
         """
@@ -562,7 +564,7 @@ class Settings(BaseSettings):
             #     "provider": "anthropic",
             #     "api_key": "sk-...",
             #     "base_url": None,
-            #     "model": "claude-3-5-opus-20240507",
+            #     "model": "claude-opus-4-20250514",
             # }
         """
         provider = self.llm_provider

@@ -130,7 +130,7 @@ class TestPlannerInit:
         with patch("builtins.open", mock_open(read_data="prompt content")):
             agent = PlannerAgent()
         assert agent.system_prompt_path == "config/agents/planner/CLAUDE.md"
-        assert agent.model == "claude-3-5-sonnet-20241022"
+        assert agent.model == "claude-sonnet-4-20250514"
         assert agent.max_turns == 30
         assert agent.system_prompt == "prompt content"
 
@@ -1165,7 +1165,7 @@ class TestCreatePlannerFunction:
             agent = create_planner()
         assert isinstance(agent, PlannerAgent)
         assert agent.system_prompt_path == "config/agents/planner/CLAUDE.md"
-        assert agent.model == "claude-3-5-sonnet-20241022"
+        assert agent.model == "claude-sonnet-4-20250514"
 
     def test_custom_params(self):
         """Test create_planner with custom parameters."""

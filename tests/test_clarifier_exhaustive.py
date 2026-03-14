@@ -169,7 +169,7 @@ class TestClarifierInit:
         with patch("builtins.open", mock_open(read_data="prompt content")):
             agent = ClarifierAgent()
         assert agent.system_prompt_path == "config/agents/clarifier/CLAUDE.md"
-        assert agent.model == "claude-3-5-sonnet-20241022"
+        assert agent.model == "claude-sonnet-4-20250514"
         assert agent.max_turns == 30
         assert agent.system_prompt == "prompt content"
 
@@ -832,7 +832,7 @@ class TestCreateClarifierFunction:
             agent = create_clarifier()
         assert isinstance(agent, ClarifierAgent)
         assert agent.system_prompt_path == "config/agents/clarifier/CLAUDE.md"
-        assert agent.model == "claude-3-5-sonnet-20241022"
+        assert agent.model == "claude-sonnet-4-20250514"
 
     def test_custom_params(self):
         """Test create_clarifier with custom parameters."""

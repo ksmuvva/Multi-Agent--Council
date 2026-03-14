@@ -91,7 +91,7 @@ class MemoryCuratorAgent:
     def __init__(
         self,
         system_prompt_path: str = "config/agents/memory_curator/CLAUDE.md",
-        model: str = "claude-3-5-sonnet-20241022",
+        model: str = "claude-sonnet-4-20250514",
         max_turns: int = 30,
         knowledge_dir: str = "docs/knowledge",
     ):
@@ -1077,7 +1077,7 @@ class MemoryCuratorAgent:
 
 def create_memory_curator(
     system_prompt_path: str = "config/agents/memory_curator/CLAUDE.md",
-    model: str = "claude-3-5-sonnet-20241022",
+    model: str = "claude-sonnet-4-20250514",
     knowledge_dir: str = "docs/knowledge",
 ) -> MemoryCuratorAgent:
     """Create a configured Memory Curator agent."""

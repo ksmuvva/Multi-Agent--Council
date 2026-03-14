@@ -51,7 +51,7 @@ class TestInitialization:
 
     def test_default_params(self, agent):
         assert agent.system_prompt_path == "config/agents/analyst/CLAUDE.md"
-        assert agent.model == "claude-3-5-sonnet-20241022"
+        assert agent.model == "claude-sonnet-4-20250514"
         assert agent.max_turns == 30
 
     def test_custom_params(self):
@@ -1021,7 +1021,7 @@ class TestCreateAnalyst:
         with patch("builtins.open", mock_open(read_data="prompt")):
             a = create_analyst()
         assert a.system_prompt_path == "config/agents/analyst/CLAUDE.md"
-        assert a.model == "claude-3-5-sonnet-20241022"
+        assert a.model == "claude-sonnet-4-20250514"
 
     def test_custom_params(self):
         with patch("builtins.open", mock_open(read_data="prompt")):

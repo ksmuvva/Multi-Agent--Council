@@ -11,16 +11,12 @@ from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
+from src.core.sme_registry import InteractionMode
+
 
 # =============================================================================
 # Domain Council Chair Schemas
 # =============================================================================
-
-class InteractionMode(str, Enum):
-    """SME interaction modes."""
-    ADVISOR = "advisor"
-    CO_EXECUTOR = "co_executor"
-    DEBATER = "debater"
 
 
 class SMESelection(BaseModel):

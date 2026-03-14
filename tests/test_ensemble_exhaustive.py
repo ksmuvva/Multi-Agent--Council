@@ -71,7 +71,7 @@ class TestAgentAssignment:
             phase="analysis", dependencies=[], parallel_with=[],
         )
         assert aa.max_turns == 30
-        assert aa.model == "claude-3-5-sonnet-20241022"
+        assert aa.model == "claude-sonnet-4-20250514"
 
     def test_custom_values(self):
         aa = AgentAssignment(
@@ -298,9 +298,9 @@ class TestSuggestEnsemble:
         result = suggest_ensemble("Gather requirements for the new feature")
         assert isinstance(result, RequirementsWorkshop)
 
-    def test_default_is_code_sprint(self):
+    def test_default_is_none(self):
         result = suggest_ensemble("Do something random")
-        assert isinstance(result, CodeSprint)
+        assert result is None
 
     def test_case_insensitive(self):
         result = suggest_ensemble("RESEARCH the ARCHITECTURE")

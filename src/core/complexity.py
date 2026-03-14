@@ -233,12 +233,13 @@ def classify_complexity(
 
     # Check for Tier 3 indicators
     tier_3_matches = [kw for kw in TIER_3_KEYWORDS if kw in prompt_lower]
-    if tier_3_matches and tier_score < 3:
-        tier_score = 3
+    if tier_3_matches:
         keywords_found.extend(tier_3_matches)
         reasoning_parts.append(
             f"Contains domain-specific keywords: {', '.join(tier_3_matches[:3])}"
         )
+        if tier_score < 3:
+            tier_score = 3
 
     # Check for escalation keywords
     escalation_matches = [kw for kw in ESCALATION_KEYWORDS if kw in prompt_lower]

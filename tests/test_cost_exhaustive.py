@@ -37,9 +37,9 @@ from src.utils.cost import (
 
 class TestModelPricing:
     def test_all_models(self):
-        assert ModelPricing.HAIKU.value == "claude-3-5-haiku-20250101"
-        assert ModelPricing.SONNET.value == "claude-3-5-sonnet-20241022"
-        assert ModelPricing.OPUS.value == "claude-3-5-opus-20240507"
+        assert ModelPricing.HAIKU.value == "claude-haiku-4-5-20251001"
+        assert ModelPricing.SONNET.value == "claude-sonnet-4-20250514"
+        assert ModelPricing.OPUS.value == "claude-opus-4-20250514"
 
     def test_count(self):
         assert len(ModelPricing) == 3

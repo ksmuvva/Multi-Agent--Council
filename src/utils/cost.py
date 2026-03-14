@@ -7,10 +7,10 @@ Provides per-session, daily, and cumulative cost tracking.
 
 import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Callable
+from typing import Dict, List, Optional, Any, Callable, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
-from threading import Lock
+from threading import RLock
 from collections import defaultdict
 
 from .logging import get_logger, log_cost
@@ -22,14 +22,14 @@ from .logging import get_logger, log_cost
 
 class ModelPricing(str, Enum):
     """Available Claude models with pricing."""
-    HAIKU = "claude-3-5-haiku-20250101"
-    SONNET = "claude-3-5-sonnet-20241022"
-    OPUS = "claude-3-5-opus-20240507"
+    HAIKU = "claude-haiku-4-5-20251001"
+    SONNET = "claude-sonnet-4-20250514"
+    OPUS = "claude-opus-4-20250514"
 
 
 # USD per 1M tokens (as of 2025)
 MODEL_COSTS = {
-    ModelPricing.HAIKU: {"input": 0.25, "output": 1.25},
+    ModelPricing.HAIKU: {"input": 0.80, "output": 4.0},
     ModelPricing.SONNET: {"input": 3.0, "output": 15.0},
     ModelPricing.OPUS: {"input": 15.0, "output": 75.0},
 }
@@ -191,7 +191,7 @@ class CostTracker:
     """
 
     _instance = None
-    _lock = Lock()
+    _lock = RLock()
 
     def __new__(cls):
         if cls._instance is None:
@@ -333,10 +333,10 @@ class CostTracker:
                 operation=f"{agent_name}:{phase}",
             )
 
-            # Check budget
-            self._check_budget(session_id)
+        # Check budget outside lock so exceptions don't leave lock held
+        self._check_budget(session_id)
 
-            return operation
+        return operation
 
     def get_session_state(self, session_id: str) -> Optional[SessionCosts]:
         """Get the cost state for a session."""
@@ -454,7 +454,7 @@ class CostTracker:
 
     def estimate_cost(
         self,
-        agents: List[tuple[str, int]],
+        agents: List[Tuple[str, int]],
         tier: int = 2,
     ) -> Dict[str, Any]:
         """

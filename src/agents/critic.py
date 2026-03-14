@@ -49,7 +49,7 @@ class CriticAgent:
     def __init__(
         self,
         system_prompt_path: str = "config/agents/critic/CLAUDE.md",
-        model: str = "claude-3-5-opus-20240507",
+        model: str = "claude-opus-4-20250514",
         max_turns: int = 30,
     ):
         """
@@ -762,7 +762,7 @@ class CriticAgent:
 
 def create_critic(
     system_prompt_path: str = "config/agents/critic/CLAUDE.md",
-    model: str = "claude-3-5-opus-20240507",
+    model: str = "claude-opus-4-20250514",
 ) -> CriticAgent:
     """Create a configured Critic agent."""
     return CriticAgent(

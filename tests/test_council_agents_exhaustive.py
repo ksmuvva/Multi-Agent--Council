@@ -48,7 +48,7 @@ class TestCouncilChairAgentInit:
         """Test default initialization when system prompt file is missing."""
         agent = CouncilChairAgent()
         assert agent.system_prompt_path == "config/agents/council/CLAUDE.md"
-        assert agent.model == "claude-3-5-opus-20240507"
+        assert agent.model == "claude-opus-4-20250514"
         assert agent.max_turns == 30
         # Falls back to default prompt when file is missing
         assert "Council Chair" in agent.system_prompt
@@ -57,11 +57,11 @@ class TestCouncilChairAgentInit:
         """Test initialization with custom parameters."""
         agent = CouncilChairAgent(
             system_prompt_path="custom/path.md",
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-20250514",
             max_turns=15,
         )
         assert agent.system_prompt_path == "custom/path.md"
-        assert agent.model == "claude-3-5-sonnet-20241022"
+        assert agent.model == "claude-sonnet-4-20250514"
         assert agent.max_turns == 15
 
     def test_init_loads_system_prompt_from_file(self, tmp_path):
@@ -588,7 +588,7 @@ class TestQualityArbiterInit:
         """Test default initialization."""
         agent = QualityArbiterAgent()
         assert agent.system_prompt_path == "config/agents/council/CLAUDE.md"
-        assert agent.model == "claude-3-5-opus-20240507"
+        assert agent.model == "claude-opus-4-20250514"
         assert agent.max_turns == 30
         assert "Quality Arbiter" in agent.system_prompt
 
@@ -855,7 +855,7 @@ class TestEthicsAdvisorInit:
         """Test default initialization."""
         agent = EthicsAdvisorAgent()
         assert agent.system_prompt_path == "config/agents/council/CLAUDE.md"
-        assert agent.model == "claude-3-5-opus-20240507"
+        assert agent.model == "claude-opus-4-20250514"
         assert agent.max_turns == 30
         # System prompt is loaded from file or uses fallback
         assert len(agent.system_prompt) > 0

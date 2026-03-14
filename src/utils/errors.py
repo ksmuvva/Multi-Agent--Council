@@ -414,7 +414,7 @@ class DegradationManager:
         self._actions.append(action)
 
     def _execute_actions(self, level: DegradationLevel) -> None:
-        """Execute actions for a given level."""
+        """Execute actions at or above the current degradation severity."""
         level_order = [
             DegradationLevel.CRITICAL,
             DegradationLevel.SEVERE,
@@ -422,19 +422,24 @@ class DegradationManager:
             DegradationLevel.MILD,
         ]
 
-        # Execute actions at or above the current level
-        for action_level in level_order:
-            if level_order.index(action_level) >= level_order.index(level):
-                for action in self._actions:
-                    if action.level == action_level and action.enabled:
-                        try:
-                            action.handler()
-                        except Exception as e:
-                            self._logger.error(
-                                "degradation_action_failed",
-                                action=action.description,
-                                error=str(e),
-                            )
+        if level not in level_order:
+            return
+
+        current_idx = level_order.index(level)
+
+        # Execute actions at the current severity or more severe (lower index)
+        for action in self._actions:
+            if action.enabled and action.level in level_order:
+                action_idx = level_order.index(action.level)
+                if action_idx <= current_idx:
+                    try:
+                        action.handler()
+                    except Exception as e:
+                        self._logger.error(
+                            "degradation_action_failed",
+                            action=action.description,
+                            error=str(e),
+                        )
 
     def is_degraded(self) -> bool:
         """Check if system is currently degraded."""

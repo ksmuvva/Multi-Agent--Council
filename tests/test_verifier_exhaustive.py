@@ -53,7 +53,7 @@ def verifier_with_prompt():
 class TestVerifierInit:
     def test_default_init(self, verifier):
         assert verifier.system_prompt_path == "config/agents/verifier/CLAUDE.md"
-        assert verifier.model == "claude-3-5-opus-20240507"
+        assert verifier.model == "claude-opus-4-20250514"
         assert verifier.max_turns == 30
         assert "Verifier" in verifier.system_prompt
 
@@ -732,7 +732,7 @@ class TestCreateVerifier:
         with patch("builtins.open", side_effect=FileNotFoundError):
             v = create_verifier()
         assert isinstance(v, VerifierAgent)
-        assert v.model == "claude-3-5-opus-20240507"
+        assert v.model == "claude-opus-4-20250514"
 
     def test_creates_custom_verifier(self):
         with patch("builtins.open", side_effect=FileNotFoundError):

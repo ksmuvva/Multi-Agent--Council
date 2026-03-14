@@ -189,7 +189,7 @@ class TestCriticAgentInit:
         with patch("builtins.open", side_effect=FileNotFoundError):
             agent = CriticAgent()
         assert agent.system_prompt_path == "config/agents/critic/CLAUDE.md"
-        assert agent.model == "claude-3-5-opus-20240507"
+        assert agent.model == "claude-opus-4-20250514"
         assert agent.max_turns == 30
 
     def test_custom_params(self):
@@ -1205,7 +1205,7 @@ class TestCreateCritic:
         with patch("builtins.open", side_effect=FileNotFoundError):
             agent = create_critic()
         assert isinstance(agent, CriticAgent)
-        assert agent.model == "claude-3-5-opus-20240507"
+        assert agent.model == "claude-opus-4-20250514"
 
     def test_custom_params(self):
         with patch("builtins.open", side_effect=FileNotFoundError):

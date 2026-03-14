@@ -33,7 +33,7 @@ class PlannerAgent:
     def __init__(
         self,
         system_prompt_path: str = "config/agents/planner/CLAUDE.md",
-        model: str = "claude-3-5-sonnet-20241022",
+        model: str = "claude-sonnet-4-20250514",
         max_turns: int = 30,
     ):
         """
@@ -574,7 +574,7 @@ class PlannerAgent:
 
 def create_planner(
     system_prompt_path: str = "config/agents/planner/CLAUDE.md",
-    model: str = "claude-3-5-sonnet-20241022",
+    model: str = "claude-sonnet-4-20250514",
 ) -> PlannerAgent:
     """Create a configured Planner agent."""
     return PlannerAgent(

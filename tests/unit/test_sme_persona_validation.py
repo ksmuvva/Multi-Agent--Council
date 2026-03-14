@@ -1357,7 +1357,7 @@ class TestEdgeCases:
     def test_convenience_function_create_sme_spawner(self):
         spawner = create_sme_spawner()
         assert isinstance(spawner, SMESpawner)
-        assert spawner.model == "claude-3-5-sonnet-20241022"
+        assert spawner.model == "claude-sonnet-4-20250514"
 
     def test_convenience_function_custom_params(self):
         spawner = create_sme_spawner(

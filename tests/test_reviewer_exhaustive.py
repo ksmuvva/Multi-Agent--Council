@@ -159,7 +159,7 @@ class TestReviewerAgentInit:
         with patch("builtins.open", side_effect=FileNotFoundError):
             agent = ReviewerAgent()
         assert agent.system_prompt_path == "config/agents/reviewer/CLAUDE.md"
-        assert agent.model == "claude-3-5-opus-20240507"
+        assert agent.model == "claude-opus-4-20250514"
         assert agent.max_turns == 30
 
     def test_custom_params(self):
@@ -1243,7 +1243,7 @@ class TestCreateReviewer:
         with patch("builtins.open", side_effect=FileNotFoundError):
             agent = create_reviewer()
         assert isinstance(agent, ReviewerAgent)
-        assert agent.model == "claude-3-5-opus-20240507"
+        assert agent.model == "claude-opus-4-20250514"
         assert agent.system_prompt_path == "config/agents/reviewer/CLAUDE.md"
 
     def test_custom_params(self):

@@ -112,9 +112,21 @@ from .sdk_integration import (
     AGENT_ALLOWED_TOOLS,
     build_agent_options,
     spawn_subagent,
+    spawn_subagent_async,
     create_sdk_mcp_server,
     get_skills_for_agent,
     get_skills_for_sme,
+)
+
+# Model constants
+from .models import (
+    MODEL_HAIKU,
+    MODEL_SONNET,
+    MODEL_OPUS,
+    MODEL_FAST,
+    MODEL_BALANCED,
+    MODEL_POWERFUL,
+    TIER_MODELS as MODEL_TIER_DEFAULTS,
 )
 
 __all__ = [
@@ -191,7 +203,16 @@ __all__ = [
     "AGENT_ALLOWED_TOOLS",
     "build_agent_options",
     "spawn_subagent",
+    "spawn_subagent_async",
     "create_sdk_mcp_server",
+    # Model constants
+    "MODEL_HAIKU",
+    "MODEL_SONNET",
+    "MODEL_OPUS",
+    "MODEL_FAST",
+    "MODEL_BALANCED",
+    "MODEL_POWERFUL",
+    "MODEL_TIER_DEFAULTS",
     "get_skills_for_agent",
     "get_skills_for_sme",
 ]

@@ -64,7 +64,7 @@ class TestCodeReviewerInitialization:
     def test_default_initialization(self):
         """Test default init parameters."""
         agent = CodeReviewerAgent(system_prompt_path="nonexistent.md")
-        assert agent.model == "claude-3-5-sonnet-20241022"
+        assert agent.model == "claude-sonnet-4-20250514"
         assert agent.max_turns == 30
 
     def test_security_patterns_initialized(self):

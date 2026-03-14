@@ -256,7 +256,7 @@ class TestExecutionResult:
 
 class TestInit:
     def test_defaults(self, executor):
-        assert executor.model == "claude-3-5-sonnet-20241022"
+        assert executor.model == "claude-sonnet-4-20250514"
         assert executor.max_turns == 50
         assert executor.system_prompt_path == "nonexistent.md"
 

@@ -2,12 +2,16 @@
 Pipeline Orchestration Module
 
 Implements the eight-phase execution pipeline for the Multi-Agent
-Reasoning System.
+Reasoning System. Uses a state-machine approach for non-linear phase
+transitions (revision loops, re-verification, full regeneration).
+
+Supports parallel agent execution within phases via asyncio.
 """
 
+import asyncio
 from enum import Enum
 from typing import List, Optional, Dict, Any, Callable
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from dataclasses import dataclass
 
 from .complexity import TierLevel, TierClassification
@@ -61,18 +65,8 @@ class PhaseResult:
 
 class PipelineState(BaseModel):
     """Current state of the pipeline."""
-    current_phase: Optional[Phase] = None
-    completed_phases: List[Phase] = Field(default_factory=list)
-    tier_level: TierLevel = Field(default=TierLevel.STANDARD)
-    revision_cycle: int = Field(default=0, ge=0)
-    debate_rounds: int = Field(default=0, ge=0)
-    total_cost_usd: float = Field(default=0.0, ge=0.0)
-    total_tokens: int = Field(default=0, ge=0)
-    start_time: Optional[float] = None
-    end_time: Optional[float] = None
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "current_phase": "Phase 5: Solution Generation",
                 "completed_phases": [
@@ -83,14 +77,29 @@ class PipelineState(BaseModel):
                 "revision_cycle": 0,
                 "debate_rounds": 0,
                 "total_cost_usd": 0.45,
-                "total_tokens": 12500
+                "total_tokens": 12500,
             }
         }
+    )
+
+    current_phase: Optional[Phase] = None
+    completed_phases: List[Phase] = Field(default_factory=list)
+    tier_level: TierLevel = Field(default=TierLevel.STANDARD)
+    revision_cycle: int = Field(default=0, ge=0)
+    debate_rounds: int = Field(default=0, ge=0)
+    total_cost_usd: float = Field(default=0.0, ge=0.0)
+    total_tokens: int = Field(default=0, ge=0)
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
 
 
 class ExecutionPipeline:
     """
     Orchestrates the eight-phase execution pipeline.
+
+    Uses a state-machine (while-loop with explicit phase index) instead
+    of a for-loop, enabling non-linear transitions for revision cycles,
+    re-verification, and full regeneration.
 
     Phase structure by tier:
     - Tier 1: Phase 5 + Phase 8 only
@@ -102,7 +111,8 @@ class ExecutionPipeline:
         self,
         tier_level: TierLevel = TierLevel.STANDARD,
         max_revisions: int = 2,
-        max_debate_rounds: int = 2
+        max_debate_rounds: int = 2,
+        agent_executor: Optional[Callable] = None,
     ):
         """
         Initialize the pipeline.
@@ -111,6 +121,8 @@ class ExecutionPipeline:
             tier_level: The complexity tier (1-4)
             max_revisions: Maximum revision cycles
             max_debate_rounds: Maximum debate rounds
+            agent_executor: Required callable for agent execution. If not
+                provided at init, must be passed to run_pipeline().
         """
         self.tier_level = tier_level
         self.max_revisions = max_revisions
@@ -118,6 +130,7 @@ class ExecutionPipeline:
         self.state = PipelineState(tier_level=tier_level)
         self.phase_results: Dict[Phase, PhaseResult] = {}
         self.debate_protocol: Optional[DebateProtocol] = None
+        self._agent_executor = agent_executor
 
     # ========================================================================
     # Phase Execution
@@ -130,7 +143,10 @@ class ExecutionPipeline:
         context: Dict[str, Any]
     ) -> PhaseResult:
         """
-        Execute a single pipeline phase.
+        Execute a single pipeline phase with parallel agent support.
+
+        Agents within the same phase are executed in parallel using
+        asyncio.gather() when possible.
 
         Args:
             phase: The phase to execute
@@ -152,23 +168,16 @@ class ExecutionPipeline:
         # Update state
         self.state.current_phase = phase
 
-        # Get agents for this phase
-        agents = self._get_agents_for_phase(phase)
+        # Get agents for this phase (H2 fix: pass context to get review agents)
+        agents = self._get_agents_for_phase(phase, context)
 
-        # Execute agents
-        agent_results = []
-        for agent_name in agents:
-            result = agent_executor(
-                agent_name=agent_name,
-                phase=phase,
-                context=context
-            )
-            agent_results.append(result)
+        # Execute agents in parallel within the phase (C2 fix)
+        agent_results = self._execute_agents_parallel(agents, phase, agent_executor, context)
 
         # Determine status
         status = self._determine_phase_status(agent_results)
 
-        # Record result
+        # Record result (L2 fix: extract ALL agent outputs, not just first)
         phase_result = PhaseResult(
             phase=phase,
             status=status,
@@ -184,65 +193,208 @@ class ExecutionPipeline:
 
         return phase_result
 
+    def _execute_agents_parallel(
+        self,
+        agents: List[str],
+        phase: Phase,
+        agent_executor: Callable,
+        context: Dict[str, Any],
+    ) -> List[AgentResult]:
+        """
+        Execute agents in parallel using asyncio when multiple agents
+        are in the same phase, falling back to sequential for single agents.
+        """
+        if len(agents) <= 1:
+            # Single agent — run directly
+            results = []
+            for agent_name in agents:
+                result = agent_executor(
+                    agent_name=agent_name,
+                    phase=phase,
+                    context=context,
+                )
+                results.append(result)
+            return results
+
+        # Multiple agents — try parallel execution
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # Already in async context — run sequentially to avoid nesting
+            return self._execute_agents_sequential(agents, phase, agent_executor, context)
+
+        try:
+            return asyncio.run(
+                self._execute_agents_async(agents, phase, agent_executor, context)
+            )
+        except RuntimeError:
+            # Fallback to sequential if asyncio.run fails
+            return self._execute_agents_sequential(agents, phase, agent_executor, context)
+
+    async def _execute_agents_async(
+        self,
+        agents: List[str],
+        phase: Phase,
+        agent_executor: Callable,
+        context: Dict[str, Any],
+    ) -> List[AgentResult]:
+        """Execute agents in parallel using asyncio.gather()."""
+        loop = asyncio.get_event_loop()
+
+        async def run_agent(agent_name: str) -> AgentResult:
+            return await loop.run_in_executor(
+                None,
+                lambda: agent_executor(
+                    agent_name=agent_name,
+                    phase=phase,
+                    context=context,
+                ),
+            )
+
+        tasks = [run_agent(name) for name in agents]
+        return list(await asyncio.gather(*tasks))
+
+    def _execute_agents_sequential(
+        self,
+        agents: List[str],
+        phase: Phase,
+        agent_executor: Callable,
+        context: Dict[str, Any],
+    ) -> List[AgentResult]:
+        """Execute agents sequentially (fallback)."""
+        results = []
+        for agent_name in agents:
+            result = agent_executor(
+                agent_name=agent_name,
+                phase=phase,
+                context=context,
+            )
+            results.append(result)
+        return results
+
     # ========================================================================
-    # Pipeline Flow
+    # Pipeline Flow (H1 fix: state-machine with while-loop)
     # ========================================================================
 
     def run_pipeline(
         self,
-        agent_executor: Callable,
-        initial_context: Dict[str, Any]
+        agent_executor: Optional[Callable] = None,
+        initial_context: Optional[Dict[str, Any]] = None
     ) -> PipelineState:
         """
         Run the complete pipeline based on tier level.
 
+        Uses a state-machine (while-loop with explicit phase index) to
+        support non-linear transitions: revision loops, re-verification,
+        and full regeneration.
+
         Args:
-            agent_executor: Function to execute agents
+            agent_executor: Function to execute agents (uses init value if None)
             initial_context: Initial execution context
 
         Returns:
             Final PipelineState
+
+        Raises:
+            ValueError: If no agent_executor is available
         """
         import time
+
+        executor = agent_executor or self._agent_executor
+        if executor is None:
+            raise ValueError(
+                "agent_executor is required. Pass it to __init__() or run_pipeline()."
+            )
+
+        context = initial_context or {}
+        # Store executor in context so verdict actions can re-invoke phases (M5 fix)
+        context["agent_executor"] = executor
+
         self.state.start_time = time.time()
 
         # Determine phases to run
         phases = self._get_phases_for_tier()
 
-        # Run phases sequentially
-        for phase in phases:
+        # State-machine loop (H1 fix: replaces broken for-loop)
+        phase_idx = 0
+        while phase_idx < len(phases):
+            phase = phases[phase_idx]
+
             # Execute phase
-            result = self.execute_phase(phase, agent_executor, initial_context)
+            result = self.execute_phase(phase, executor, context)
 
             # Check for errors
             if result.status == PhaseStatus.FAILED:
-                # Handle failure based on phase
                 if not self._handle_phase_failure(phase, result):
                     break
 
-            # Special handling for Phase 6 (Review) - verdict matrix
-            if phase == Phase.PHASE_6_REVIEW:
+            # Special handling for Phase 6 (Review) — verdict matrix
+            if phase == Phase.PHASE_6_REVIEW and result.status == PhaseStatus.COMPLETE:
                 action = self._evaluate_verdict_matrix(result)
-                if action == MatrixAction.EXECUTOR_REVISE:
-                    # Go to Phase 7
-                    continue
-                elif action in [MatrixAction.RESEARCHER_REVERIFY, MatrixAction.FULL_REGENERATION]:
-                    # Loop back to earlier phase
-                    self._handle_verdict_action(action, initial_context)
-                    continue
 
-            # Special handling for Phase 7 (Revision) - loop back
-            if phase == Phase.PHASE_7_REVISION:
-                if self.state.revision_cycle < self.max_revisions:
-                    # Loop back to Phase 5 or 6
+                if action == MatrixAction.PROCEED_TO_FORMATTER:
+                    # Skip Phase 7, jump to Phase 8
+                    phase_8_idx = None
+                    for i, p in enumerate(phases):
+                        if p == Phase.PHASE_8_FINAL_REVIEW_FORMATTING:
+                            phase_8_idx = i
+                            break
+                    if phase_8_idx is not None:
+                        phase_idx = phase_8_idx
+                        continue
+
+                elif action == MatrixAction.EXECUTOR_REVISE:
+                    if self.state.revision_cycle < self.max_revisions:
+                        # Jump back to Phase 5 (Solution Generation)
+                        self.state.revision_cycle += 1
+                        self._reset_phases_for_revision()
+                        phase_5_idx = None
+                        for i, p in enumerate(phases):
+                            if p == Phase.PHASE_5_SOLUTION_GENERATION:
+                                phase_5_idx = i
+                                break
+                        if phase_5_idx is not None:
+                            phase_idx = phase_5_idx
+                            continue
+                    # else: max revisions reached, fall through to next phase
+
+                elif action in (MatrixAction.RESEARCHER_REVERIFY, MatrixAction.FULL_REGENERATION):
+                    self._handle_verdict_action(action, context)
+                    # After handling, re-run from Phase 5
                     self.state.revision_cycle += 1
-                    continue
-                else:
-                    # Max revisions reached - proceed to Phase 8
-                    pass
+                    phase_5_idx = None
+                    for i, p in enumerate(phases):
+                        if p == Phase.PHASE_5_SOLUTION_GENERATION:
+                            phase_5_idx = i
+                            break
+                    if phase_5_idx is not None and self.state.revision_cycle <= self.max_revisions:
+                        phase_idx = phase_5_idx
+                        continue
+
+                elif action == MatrixAction.QUALITY_ARBITER:
+                    self._invoke_quality_arbiter(context)
+                    # Proceed to formatting after arbiter
+
+            # Normal progression
+            phase_idx += 1
 
         self.state.end_time = time.time()
         return self.state
+
+    def _reset_phases_for_revision(self) -> None:
+        """Clear previous Phase 5/6/7 results to allow re-execution."""
+        for phase_to_reset in [
+            Phase.PHASE_5_SOLUTION_GENERATION,
+            Phase.PHASE_6_REVIEW,
+            Phase.PHASE_7_REVISION,
+        ]:
+            if phase_to_reset in self.phase_results:
+                del self.phase_results[phase_to_reset]
+            if phase_to_reset in self.state.completed_phases:
+                self.state.completed_phases.remove(phase_to_reset)
 
     # ========================================================================
     # Phase Configuration
@@ -283,15 +435,17 @@ class ExecutionPipeline:
         # Filter based on tier
         return [p for p in all_phases if not self._should_skip_phase(p)]
 
-    def _get_agents_for_phase(self, phase: Phase) -> List[str]:
-        """Get the list of agents for a phase."""
+    def _get_agents_for_phase(
+        self, phase: Phase, context: Optional[Dict[str, Any]] = None
+    ) -> List[str]:
+        """Get the list of agents for a phase (H2 fix: passes context)."""
         phase_agents = {
             Phase.PHASE_1_TASK_INTELLIGENCE: ["Task Analyst"],
             Phase.PHASE_2_COUNCIL_CONSULTATION: self._get_council_agents(),
             Phase.PHASE_3_PLANNING: ["Planner"],
             Phase.PHASE_4_RESEARCH: ["Researcher"],
             Phase.PHASE_5_SOLUTION_GENERATION: ["Executor"],
-            Phase.PHASE_6_REVIEW: self._get_review_agents(),
+            Phase.PHASE_6_REVIEW: self._get_review_agents(context),
             Phase.PHASE_7_REVISION: ["Executor"],
             Phase.PHASE_8_FINAL_REVIEW_FORMATTING: ["Reviewer", "Formatter"],
         }
@@ -310,7 +464,7 @@ class ExecutionPipeline:
         return []
 
     def _get_review_agents(self, context: Optional[Dict[str, Any]] = None) -> List[str]:
-        """Get review agents (can run in parallel)."""
+        """Get review agents (run in parallel within Phase 6)."""
         agents = ["Verifier", "Critic"]
 
         # Add Code Reviewer if code was generated in the solution phase
@@ -331,7 +485,6 @@ class ExecutionPipeline:
 
         for result in phase_result.agent_results:
             if result.agent_name == "Verifier":
-                # Parse verdict from output
                 verifier_verdict = self._parse_verdict(result.output)
             elif result.agent_name == "Critic":
                 critic_verdict = self._parse_verdict(result.output)
@@ -359,38 +512,36 @@ class ExecutionPipeline:
         action: MatrixAction,
         context: Dict[str, Any]
     ) -> None:
-        """Handle a verdict matrix action."""
+        """Handle a verdict matrix action (re-verify or regenerate)."""
         logger = get_logger(__name__)
+        agent_executor = context.get("agent_executor")
+
+        if not agent_executor:
+            raise ValueError(
+                "agent_executor missing from context; cannot handle verdict action. "
+                "Ensure agent_executor is set via run_pipeline() or __init__()."
+            )
 
         if action == MatrixAction.RESEARCHER_REVERIFY:
             logger.info("Verdict action: RESEARCHER_REVERIFY - re-running research phase on flagged claims")
-            # Collect flagged claims from the review phase results
             flagged_claims = self._extract_flagged_claims()
             context["flagged_claims"] = flagged_claims
             context["reverify_mode"] = True
 
-            # Re-execute the research phase to gather new evidence
             if Phase.PHASE_4_RESEARCH in self.phase_results:
-                # Remove previous research result so it can be re-run
                 del self.phase_results[Phase.PHASE_4_RESEARCH]
                 if Phase.PHASE_4_RESEARCH in self.state.completed_phases:
                     self.state.completed_phases.remove(Phase.PHASE_4_RESEARCH)
 
-            # Re-run research phase with the agent_executor stored in context
-            agent_executor = context.get("agent_executor")
-            if agent_executor:
-                research_result = self.execute_phase(
-                    Phase.PHASE_4_RESEARCH, agent_executor, context
-                )
-                logger.info(
-                    f"Research re-verification complete: status={research_result.status}"
-                )
-            else:
-                logger.warning("No agent_executor in context; cannot re-run research phase")
+            research_result = self.execute_phase(
+                Phase.PHASE_4_RESEARCH, agent_executor, context
+            )
+            logger.info(
+                f"Research re-verification complete: status={research_result.status}"
+            )
 
         elif action == MatrixAction.FULL_REGENERATION:
             logger.info("Verdict action: FULL_REGENERATION - resetting to solution generation phase")
-            # Incorporate feedback from the failed review into context
             review_result = self.phase_results.get(Phase.PHASE_6_REVIEW)
             if review_result:
                 feedback = [
@@ -400,24 +551,7 @@ class ExecutionPipeline:
                 context["regeneration_feedback"] = feedback
                 context["regeneration_cycle"] = self.state.revision_cycle + 1
 
-            # Remove previous solution and review results to allow re-execution
-            for phase_to_reset in [Phase.PHASE_5_SOLUTION_GENERATION, Phase.PHASE_6_REVIEW]:
-                if phase_to_reset in self.phase_results:
-                    del self.phase_results[phase_to_reset]
-                if phase_to_reset in self.state.completed_phases:
-                    self.state.completed_phases.remove(phase_to_reset)
-
-            # Re-run solution generation
-            agent_executor = context.get("agent_executor")
-            if agent_executor:
-                gen_result = self.execute_phase(
-                    Phase.PHASE_5_SOLUTION_GENERATION, agent_executor, context
-                )
-                logger.info(
-                    f"Full regeneration complete: status={gen_result.status}"
-                )
-            else:
-                logger.warning("No agent_executor in context; cannot regenerate solution")
+            self._reset_phases_for_revision()
 
         elif action == MatrixAction.QUALITY_ARBITER:
             logger.info("Verdict action: QUALITY_ARBITER - invoking arbiter for dispute resolution")
@@ -430,11 +564,9 @@ class ExecutionPipeline:
         if review_result:
             for agent_result in review_result.agent_results:
                 if agent_result.output and isinstance(agent_result.output, dict):
-                    # Collect flagged claims from verifier and critic outputs
                     claims = agent_result.output.get("flagged_claims", [])
                     if claims:
                         flagged.extend(claims)
-                    # Also check for issues/challenges as flagged items
                     issues = agent_result.output.get("issues", [])
                     if issues:
                         flagged.extend(issues)
@@ -451,12 +583,10 @@ class ExecutionPipeline:
             consensus_threshold=0.8
         )
 
-        # Add participants
         self.debate_protocol.add_participant("Executor")
         self.debate_protocol.add_participant("Critic")
         self.debate_protocol.add_participant("Verifier")
 
-        # Add SMEs if available
         smes = context.get("active_smes", [])
         for sme in smes:
             self.debate_protocol.add_sme_participant(sme)
@@ -469,14 +599,11 @@ class ExecutionPipeline:
 
     def _determine_phase_status(self, agent_results: List[AgentResult]) -> PhaseStatus:
         """Determine phase status from agent results."""
-        # Check for critical failures
         for result in agent_results:
             if result.status == "error":
-                # Check if critical agent
                 if result.agent_name in ["Verifier", "Domain Council Chair"]:
                     return PhaseStatus.FAILED
 
-        # All others - complete if at least one succeeded
         for result in agent_results:
             if result.status == "success":
                 return PhaseStatus.COMPLETE
@@ -484,9 +611,19 @@ class ExecutionPipeline:
         return PhaseStatus.FAILED
 
     def _extract_phase_output(self, agent_results: List[AgentResult]) -> Any:
-        """Extract meaningful output from agent results."""
-        outputs = [r.output for r in agent_results if r.output]
-        return outputs[0] if outputs else None
+        """
+        Extract meaningful output from agent results.
+
+        L2 fix: Returns all agent outputs as a dict keyed by agent name
+        when multiple agents produced output, or a single output for
+        single-agent phases.
+        """
+        outputs = {r.agent_name: r.output for r in agent_results if r.output}
+        if len(outputs) == 0:
+            return None
+        if len(outputs) == 1:
+            return next(iter(outputs.values()))
+        return outputs
 
     def _handle_phase_failure(
         self,
@@ -494,25 +631,14 @@ class ExecutionPipeline:
         result: PhaseResult
     ) -> bool:
         """Handle a phase failure. Returns True if should continue."""
-        # Non-critical phases can be skipped
         if phase in [Phase.PHASE_4_RESEARCH]:
             return True
-
-        # Critical failures stop the pipeline
         return False
 
     def _invoke_quality_arbiter(self, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Invoke Quality Arbiter for dispute resolution.
-
-        Collects critic and reviewer outputs, formulates the arbitration
-        request, and invokes the arbiter (council chair) with the conflict data.
-
-        Returns:
-            The arbiter's decision dict, or None if invocation is not possible.
-        """
+        """Invoke Quality Arbiter for dispute resolution."""
         logger = get_logger(__name__)
 
-        # Collect critic and verifier/reviewer outputs from the review phase
         review_result = self.phase_results.get(Phase.PHASE_6_REVIEW)
         critic_output = None
         verifier_output = None
@@ -524,7 +650,6 @@ class ExecutionPipeline:
                 elif agent_result.agent_name == "Verifier":
                     verifier_output = agent_result.output
 
-        # Formulate the arbitration request with full conflict data
         arbitration_request = {
             "type": "quality_arbitration",
             "verifier_output": verifier_output,
@@ -542,7 +667,6 @@ class ExecutionPipeline:
             ).output,
         }
 
-        # Invoke arbiter via agent_executor if available
         agent_executor = context.get("agent_executor")
         if agent_executor:
             logger.info("Invoking Quality Arbiter with conflict data")
@@ -553,30 +677,30 @@ class ExecutionPipeline:
             )
             logger.info(f"Quality Arbiter decision: status={arbiter_result.status}")
 
-            # Store the arbiter's decision in context for downstream use
             context["arbiter_decision"] = arbiter_result.output
             context["arbiter_invoked"] = True
             return arbiter_result.output
         else:
-            # Fallback: flag that arbiter is required for external handling
-            logger.warning("No agent_executor in context; flagging arbiter requirement")
-            context["require_arbiter"] = True
-            context["arbitration_request"] = arbitration_request
-            return None
+            raise ValueError(
+                "agent_executor missing from context; cannot invoke Quality Arbiter."
+            )
 
 
 class PipelineBuilder:
     """Builder for creating configured pipelines."""
 
     @staticmethod
-    def for_tier(tier: TierLevel) -> ExecutionPipeline:
+    def for_tier(tier: TierLevel, agent_executor: Optional[Callable] = None) -> ExecutionPipeline:
         """Create a pipeline for a specific tier."""
-        return ExecutionPipeline(tier_level=tier)
+        return ExecutionPipeline(tier_level=tier, agent_executor=agent_executor)
 
     @staticmethod
-    def from_classification(classification: TierClassification) -> ExecutionPipeline:
+    def from_classification(
+        classification: TierClassification,
+        agent_executor: Optional[Callable] = None,
+    ) -> ExecutionPipeline:
         """Create a pipeline from a TierClassification."""
-        return ExecutionPipeline(tier_level=classification.tier)
+        return ExecutionPipeline(tier_level=classification.tier, agent_executor=agent_executor)
 
 
 # =============================================================================

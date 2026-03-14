@@ -46,7 +46,7 @@ class FormatterAgent:
     def __init__(
         self,
         system_prompt_path: str = "config/agents/formatter/CLAUDE.md",
-        model: str = "claude-3-5-sonnet-20241022",
+        model: str = "claude-sonnet-4-20250514",
         max_turns: int = 30,
         output_dir: str = "output",
     ):
@@ -1116,7 +1116,7 @@ class FormatterAgent:
 
 def create_formatter(
     system_prompt_path: str = "config/agents/formatter/CLAUDE.md",
-    model: str = "claude-3-5-sonnet-20241022",
+    model: str = "claude-sonnet-4-20250514",
     output_dir: str = "output",
 ) -> FormatterAgent:
     """Create a configured Formatter agent."""

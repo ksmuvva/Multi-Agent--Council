@@ -214,7 +214,7 @@ class TestInit:
             skills_dir=str(tmp_path / "s"),
             sme_templates_dir=str(tmp_path / "t"),
         )
-        assert spawner.model == "claude-3-5-sonnet-20241022"
+        assert spawner.model == "claude-sonnet-4-20250514"
 
     def test_custom_model(self, tmp_path):
         spawner = SMESpawner(

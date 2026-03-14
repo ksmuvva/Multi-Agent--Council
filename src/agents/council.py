@@ -52,7 +52,7 @@ class CouncilChairAgent:
     def __init__(
         self,
         system_prompt_path: str = "config/agents/council/CLAUDE.md",
-        model: str = "claude-3-5-opus-20240507",
+        model: str = "claude-opus-4-20250514",
         max_turns: int = 30,
     ):
         """
@@ -429,7 +429,7 @@ class QualityArbiterAgent:
     def __init__(
         self,
         system_prompt_path: str = "config/agents/council/CLAUDE.md",
-        model: str = "claude-3-5-opus-20240507",
+        model: str = "claude-opus-4-20250514",
         max_turns: int = 30,
     ):
         """
@@ -882,7 +882,7 @@ class EthicsAdvisorAgent:
     def __init__(
         self,
         system_prompt_path: str = "config/agents/council/CLAUDE.md",
-        model: str = "claude-3-5-opus-20240507",
+        model: str = "claude-opus-4-20250514",
         max_turns: int = 30,
     ):
         """
@@ -1233,7 +1233,7 @@ class EthicsAdvisorAgent:
 
 def create_council_chair(
     system_prompt_path: str = "config/agents/council/CLAUDE.md",
-    model: str = "claude-3-5-opus-20240507",
+    model: str = "claude-opus-4-20250514",
 ) -> CouncilChairAgent:
     """Create a configured Council Chair agent."""
     return CouncilChairAgent(
@@ -1244,7 +1244,7 @@ def create_council_chair(
 
 def create_quality_arbiter(
     system_prompt_path: str = "config/agents/council/CLAUDE.md",
-    model: str = "claude-3-5-opus-20240507",
+    model: str = "claude-opus-4-20250514",
 ) -> QualityArbiterAgent:
     """Create a configured Quality Arbiter agent."""
     return QualityArbiterAgent(
@@ -1255,7 +1255,7 @@ def create_quality_arbiter(
 
 def create_ethics_advisor(
     system_prompt_path: str = "config/agents/council/CLAUDE.md",
-    model: str = "claude-3-5-opus-20240507",
+    model: str = "claude-opus-4-20250514",
 ) -> EthicsAdvisorAgent:
     """Create a configured Ethics Advisor agent."""
     return EthicsAdvisorAgent(

@@ -34,7 +34,7 @@ class TestFormatterInitialization:
             system_prompt_path="nonexistent.md",
             output_dir=str(tmp_path),
         )
-        assert agent.model == "claude-3-5-sonnet-20241022"
+        assert agent.model == "claude-sonnet-4-20250514"
         assert agent.max_turns == 30
 
     def test_output_dir_created(self, tmp_path):

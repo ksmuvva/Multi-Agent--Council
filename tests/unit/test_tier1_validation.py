@@ -1007,14 +1007,14 @@ class TestSDKIntegrationTier1:
     def test_agent_options_to_sdk_kwargs(self):
         options = ClaudeAgentOptions(
             name="Executor",
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-20250514",
             system_prompt="Test",
             max_turns=50,
             allowed_tools=["Read", "Write"],
         )
         kwargs = options.to_sdk_kwargs()
         assert kwargs["name"] == "Executor"
-        assert kwargs["model"] == "claude-3-5-sonnet-20241022"
+        assert kwargs["model"] == "claude-sonnet-4-20250514"
         assert kwargs["max_turns"] == 50
         assert kwargs["allowed_tools"] == ["Read", "Write"]
 
@@ -1066,7 +1066,7 @@ class TestSDKIntegrationTier1:
         """Test spawn_subagent falls back to simulation."""
         options = ClaudeAgentOptions(
             name="TestAgent",
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-20250514",
             system_prompt="Test",
             max_turns=10,
         )

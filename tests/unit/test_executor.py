@@ -51,7 +51,7 @@ class TestExecutorInitialization:
     def test_default_initialization(self):
         """Test default init parameters."""
         agent = ExecutorAgent(system_prompt_path="nonexistent.md")
-        assert agent.model == "claude-3-5-sonnet-20241022"
+        assert agent.model == "claude-sonnet-4-20250514"
         assert agent.max_turns == 50
 
     def test_custom_initialization(self):

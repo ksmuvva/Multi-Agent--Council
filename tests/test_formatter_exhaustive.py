@@ -85,7 +85,7 @@ class TestOutputFormat:
 class TestInit:
     def test_defaults(self, formatter):
         assert formatter.system_prompt_path == "config/agents/formatter/CLAUDE.md"
-        assert formatter.model == "claude-3-5-sonnet-20241022"
+        assert formatter.model == "claude-sonnet-4-20250514"
         assert formatter.max_turns == 30
         assert "Formatter" in formatter.system_prompt
 
@@ -865,7 +865,7 @@ class TestCreateFormatter:
         with patch("builtins.open", side_effect=FileNotFoundError):
             f = create_formatter(output_dir=str(tmp_path))
         assert isinstance(f, FormatterAgent)
-        assert f.model == "claude-3-5-sonnet-20241022"
+        assert f.model == "claude-sonnet-4-20250514"
 
     def test_custom_params(self, tmp_path):
         with patch("builtins.open", side_effect=FileNotFoundError):

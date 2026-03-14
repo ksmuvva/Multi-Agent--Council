@@ -126,7 +126,7 @@ def sample_findings():
 class TestResearcherInit:
     def test_default_init(self, researcher):
         assert researcher.system_prompt_path == "config/agents/researcher/CLAUDE.md"
-        assert researcher.model == "claude-3-5-sonnet-20241022"
+        assert researcher.model == "claude-sonnet-4-20250514"
         assert researcher.max_turns == 30
         # Fallback prompt when file not found
         assert "Researcher" in researcher.system_prompt
@@ -1127,7 +1127,7 @@ class TestCreateResearcher:
         with patch("builtins.open", side_effect=FileNotFoundError):
             r = create_researcher()
         assert isinstance(r, ResearcherAgent)
-        assert r.model == "claude-3-5-sonnet-20241022"
+        assert r.model == "claude-sonnet-4-20250514"
 
     def test_creates_custom_researcher(self):
         with patch("builtins.open", side_effect=FileNotFoundError):

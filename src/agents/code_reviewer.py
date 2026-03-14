@@ -49,7 +49,7 @@ class CodeReviewerAgent:
     def __init__(
         self,
         system_prompt_path: str = "config/agents/code_reviewer/CLAUDE.md",
-        model: str = "claude-3-5-sonnet-20241022",
+        model: str = "claude-sonnet-4-20250514",
         max_turns: int = 30,
     ):
         """
@@ -581,7 +581,7 @@ class CodeReviewerAgent:
 
 def create_code_reviewer(
     system_prompt_path: str = "config/agents/code_reviewer/CLAUDE.md",
-    model: str = "claude-3-5-sonnet-20241022",
+    model: str = "claude-sonnet-4-20250514",
 ) -> CodeReviewerAgent:
     """Create a configured Code Reviewer agent."""
     return CodeReviewerAgent(

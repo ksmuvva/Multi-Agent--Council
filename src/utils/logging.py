@@ -9,8 +9,9 @@ import sys
 import logging
 import threading
 from typing import Any, Dict, Optional, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from enum import Enum
 from contextvars import ContextVar
 
 import structlog
@@ -40,7 +41,7 @@ _component: ContextVar[Optional[str]] = ContextVar("component", default=None)
 # Log Levels
 # =============================================================================
 
-class LogLevel(str):
+class LogLevel(str, Enum):
     """Custom log levels."""
     DEBUG = "debug"
     INFO = "info"
@@ -152,7 +153,7 @@ def context_injector(logger: Any, method_name: str, event_dict: Dict) -> Dict:
 
 def add_timestamp(logger: Any, method_name: str, event_dict: Dict) -> Dict:
     """Add ISO 8601 timestamp to log events."""
-    event_dict["timestamp"] = datetime.utcnow().isoformat()
+    event_dict["timestamp"] = datetime.now(timezone.utc).isoformat()
     return event_dict
 
 
@@ -176,20 +177,17 @@ def stack_trace_formatter(logger: Any, method_name: str, event_dict: Dict) -> Di
         exc_info = event_dict["exc_info"]
 
         if exc_info:
-            # Format the exception
-            from structlog.dev import ExceptionRenderer
-
-            renderer = ExceptionRenderer(
-                show_frames=True,
-                frame_limit=10,
-                show_exc_info=True,
-            )
-
-            # Get the formatted exception as string
-            import io
-            output = io.StringIO()
-            renderer(output, exc_info)
-            event_dict["stack_trace"] = output.getvalue()
+            import traceback
+            if isinstance(exc_info, BaseException):
+                tb_lines = traceback.format_exception(
+                    type(exc_info), exc_info, exc_info.__traceback__
+                )
+            elif isinstance(exc_info, tuple):
+                tb_lines = traceback.format_exception(*exc_info)
+            else:
+                tb_lines = []
+            if tb_lines:
+                event_dict["stack_trace"] = "".join(tb_lines)
 
     return event_dict
 

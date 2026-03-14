@@ -385,7 +385,7 @@ class TestAnalyzeCommand:
             with patch("src.cli.main.suggest_ensemble", mock_ensemble):
                 with patch("src.core.complexity.get_active_agents", return_value=["analyst", "planner"]):
                     with patch("src.tools.cost_estimate", return_value={
-                        "model": "claude-3-5-sonnet-20241022",
+                        "model": "claude-sonnet-4-20250514",
                         "total_tokens": 5000,
                         "total_cost_usd": 0.05,
                         "agent_breakdown": [],
@@ -518,7 +518,7 @@ class TestCostCommand:
     @patch("src.tools.cost_estimate", create=True)
     def test_cost_valid(self, mock_cost):
         mock_cost.return_value = {
-            "model": "claude-3-5-sonnet-20241022",
+            "model": "claude-sonnet-4-20250514",
             "total_tokens": 10000,
             "total_cost_usd": 0.10,
             "agent_breakdown": [

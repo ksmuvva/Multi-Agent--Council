@@ -53,7 +53,7 @@ def _patch_orchestrator_deps():
     return {
         "src.agents.orchestrator.get_settings": MagicMock(return_value=_mock_settings()),
         "src.agents.orchestrator.get_api_key": MagicMock(return_value="test-key"),
-        "src.agents.orchestrator.get_model_for_agent": MagicMock(return_value="claude-3-5-sonnet-20241022"),
+        "src.agents.orchestrator.get_model_for_agent": MagicMock(return_value="claude-sonnet-4-20250514"),
         "src.agents.orchestrator.get_provider": MagicMock(return_value="anthropic"),
         "src.agents.orchestrator.create_sdk_mcp_server": MagicMock(return_value=None),
         "src.agents.orchestrator.SessionPersistence": MagicMock(),
@@ -73,7 +73,7 @@ def _create_orchestrator(**kwargs):
 
     with patch("src.agents.orchestrator.get_settings", return_value=mock_settings), \
          patch("src.agents.orchestrator.get_api_key", return_value="test-key"), \
-         patch("src.agents.orchestrator.get_model_for_agent", return_value="claude-3-5-sonnet-20241022"), \
+         patch("src.agents.orchestrator.get_model_for_agent", return_value="claude-sonnet-4-20250514"), \
          patch("src.agents.orchestrator.get_provider", return_value="anthropic"), \
          patch("src.agents.orchestrator.create_sdk_mcp_server", return_value=None):
         agent = OrchestratorAgent(enable_persistence=False, enable_auto_compact=False, **kwargs)

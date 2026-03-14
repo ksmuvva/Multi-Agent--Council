@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from enum import Enum
 from abc import ABC, abstractmethod
 
+from src.core.models import MODEL_SONNET, MODEL_HAIKU
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -48,7 +49,7 @@ class AgentAssignment:
     dependencies: List[str]  # Other agents this depends on
     parallel_with: List[str]  # Agents this can run in parallel with
     max_turns: int = 30
-    model: str = "claude-3-5-sonnet-20241022"
+    model: str = MODEL_SONNET
 
 
 @dataclass
@@ -507,7 +508,7 @@ class CodeSprint(EnsemblePattern):
                     dependencies=[],
                     parallel_with=[],
                     max_turns=15,
-                    model="claude-3-5-haiku-20250101",  # Faster model for planning
+                    model=MODEL_HAIKU,  # Faster model for planning
                 ),
                 # Phase 2: Implementation
                 AgentAssignment(
@@ -1001,8 +1002,8 @@ def suggest_ensemble(
     if any(kw in task_lower for kw in req_keywords):
         return get_ensemble(EnsembleType.REQUIREMENTS_WORKSHOP)
 
-    # Default: Code Sprint for general tasks
-    return get_ensemble(EnsembleType.CODE_SPRINT)
+    # No keyword match — return None so the caller can decide
+    return None
 
 
 def execute_ensemble(

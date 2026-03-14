@@ -75,7 +75,7 @@ class ExecutorAgent:
     def __init__(
         self,
         system_prompt_path: str = "config/agents/executor/CLAUDE.md",
-        model: str = "claude-3-5-sonnet-20241022",
+        model: str = "claude-sonnet-4-20250514",
         max_turns: int = 50,
     ):
         """
@@ -1850,7 +1850,7 @@ class ExecutorAgent:
 
 def create_executor(
     system_prompt_path: str = "config/agents/executor/CLAUDE.md",
-    model: str = "claude-3-5-sonnet-20241022",
+    model: str = "claude-sonnet-4-20250514",
 ) -> ExecutorAgent:
     """Create a configured Executor agent."""
     return ExecutorAgent(

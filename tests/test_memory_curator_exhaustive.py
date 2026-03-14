@@ -191,7 +191,7 @@ class TestInit:
     def test_defaults(self, tmp_path):
         with patch("builtins.open", side_effect=FileNotFoundError):
             agent = MemoryCuratorAgent(knowledge_dir=str(tmp_path / "k"))
-        assert agent.model == "claude-3-5-sonnet-20241022"
+        assert agent.model == "claude-sonnet-4-20250514"
         assert agent.max_turns == 30
         assert agent.system_prompt_path == "config/agents/memory_curator/CLAUDE.md"
 

@@ -98,7 +98,7 @@ class TestCouncilChairInit:
 
     def test_default_model(self):
         agent = CouncilChairAgent(system_prompt_path="nonexistent.md")
-        assert agent.model == "claude-3-5-opus-20240507"
+        assert agent.model == "claude-opus-4-20250514"
 
     def test_default_max_turns(self):
         agent = CouncilChairAgent(system_prompt_path="nonexistent.md")
@@ -533,7 +533,7 @@ class TestCouncilChairConvenience:
 
     def test_default_model(self):
         agent = create_council_chair(system_prompt_path="x.md")
-        assert agent.model == "claude-3-5-opus-20240507"
+        assert agent.model == "claude-opus-4-20250514"
 
 
 # =============================================================================
@@ -545,7 +545,7 @@ class TestQualityArbiterInit:
 
     def test_default_model(self):
         a = QualityArbiterAgent(system_prompt_path="x.md")
-        assert a.model == "claude-3-5-opus-20240507"
+        assert a.model == "claude-opus-4-20250514"
 
     def test_default_max_turns(self):
         a = QualityArbiterAgent(system_prompt_path="x.md")
@@ -855,7 +855,7 @@ class TestEthicsAdvisorInit:
 
     def test_default_model(self):
         a = EthicsAdvisorAgent(system_prompt_path="x.md")
-        assert a.model == "claude-3-5-opus-20240507"
+        assert a.model == "claude-opus-4-20250514"
 
     def test_default_max_turns(self):
         a = EthicsAdvisorAgent(system_prompt_path="x.md")

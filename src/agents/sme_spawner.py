@@ -74,7 +74,7 @@ class SMESpawner:
         self,
         skills_dir: str = ".claude/skills",
         sme_templates_dir: str = "config/sme",
-        model: str = "claude-3-5-sonnet-20241022",
+        model: str = "claude-sonnet-4-20250514",
     ):
         """
         Initialize the SME Spawner.
@@ -1142,7 +1142,7 @@ Provide guidance and recommendations based on your domain expertise.
 def create_sme_spawner(
     skills_dir: str = ".claude/skills",
     sme_templates_dir: str = "config/sme",
-    model: str = "claude-3-5-sonnet-20241022",
+    model: str = "claude-sonnet-4-20250514",
 ) -> SMESpawner:
     """Create a configured SME Spawner."""
     return SMESpawner(

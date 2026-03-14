@@ -31,7 +31,7 @@ class ClarifierAgent:
     def __init__(
         self,
         system_prompt_path: str = "config/agents/clarifier/CLAUDE.md",
-        model: str = "claude-3-5-sonnet-20241022",
+        model: str = "claude-sonnet-4-20250514",
         max_turns: int = 30,
     ):
         """
@@ -342,7 +342,7 @@ class ClarifierAgent:
 
 def create_clarifier(
     system_prompt_path: str = "config/agents/clarifier/CLAUDE.md",
-    model: str = "claude-3-5-sonnet-20241022",
+    model: str = "claude-sonnet-4-20250514",
 ) -> ClarifierAgent:
     """Create a configured Clarifier agent."""
     return ClarifierAgent(

@@ -238,7 +238,7 @@ class TestCodeReviewReportSchema:
 class TestInit:
     def test_defaults(self, reviewer):
         assert reviewer.system_prompt_path == "config/agents/code_reviewer/CLAUDE.md"
-        assert reviewer.model == "claude-3-5-sonnet-20241022"
+        assert reviewer.model == "claude-sonnet-4-20250514"
         assert reviewer.max_turns == 30
         # Fallback prompt when file not found
         assert "Code Reviewer" in reviewer.system_prompt
@@ -1036,7 +1036,7 @@ class TestCreateCodeReviewer:
         with patch("builtins.open", side_effect=FileNotFoundError):
             r = create_code_reviewer()
         assert isinstance(r, CodeReviewerAgent)
-        assert r.model == "claude-3-5-sonnet-20241022"
+        assert r.model == "claude-sonnet-4-20250514"
 
     def test_custom_params(self):
         with patch("builtins.open", side_effect=FileNotFoundError):

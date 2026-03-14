@@ -193,10 +193,10 @@ class TestSDKAgentOptions:
             mock_s.max_turns_orchestrator = 200
             mock_s.max_turns_executor = 50
             mock_settings.return_value = mock_s
-            with patch("src.core.sdk_integration.get_model_for_agent", return_value="claude-3-5-sonnet-20241022"):
+            with patch("src.core.sdk_integration.get_model_for_agent", return_value="claude-sonnet-4-20250514"):
                 options = build_agent_options("analyst", "You are the Analyst.")
                 assert options.name == "Analyst"
-                assert options.model == "claude-3-5-sonnet-20241022"
+                assert options.model == "claude-sonnet-4-20250514"
                 assert "Read" in options.allowed_tools
                 assert "Glob" in options.allowed_tools
                 assert "Grep" in options.allowed_tools
@@ -209,7 +209,7 @@ class TestSDKAgentOptions:
             mock_s = MagicMock()
             mock_s.max_turns_subagent = 30
             mock_settings.return_value = mock_s
-            with patch("src.core.sdk_integration.get_model_for_agent", return_value="claude-3-5-sonnet-20241022"):
+            with patch("src.core.sdk_integration.get_model_for_agent", return_value="claude-sonnet-4-20250514"):
                 options = build_agent_options("planner", "You are the Planner.")
                 assert options.name == "Planner"
                 assert "Read" in options.allowed_tools
@@ -235,7 +235,7 @@ class TestSDKAgentOptions:
             mock_s.max_turns_subagent = 30
             mock_s.max_turns_orchestrator = 200
             mock_settings.return_value = mock_s
-            with patch("src.core.sdk_integration.get_model_for_agent", return_value="claude-3-5-sonnet-20241022"):
+            with patch("src.core.sdk_integration.get_model_for_agent", return_value="claude-sonnet-4-20250514"):
                 options = build_agent_options("executor", "You are the Executor.")
                 assert options.permission_mode == PermissionMode.ACCEPT_EDITS
                 assert "Write" in options.allowed_tools
@@ -250,7 +250,7 @@ class TestSDKAgentOptions:
             mock_s = MagicMock()
             mock_s.max_turns_subagent = 30
             mock_settings.return_value = mock_s
-            with patch("src.core.sdk_integration.get_model_for_agent", return_value="claude-3-5-opus-20240507"):
+            with patch("src.core.sdk_integration.get_model_for_agent", return_value="claude-opus-4-20250514"):
                 options = build_agent_options("verifier", "You are the Verifier.")
                 assert "Read" in options.allowed_tools
                 assert "WebSearch" in options.allowed_tools
@@ -263,7 +263,7 @@ class TestSDKAgentOptions:
             mock_s = MagicMock()
             mock_s.max_turns_subagent = 30
             mock_settings.return_value = mock_s
-            with patch("src.core.sdk_integration.get_model_for_agent", return_value="claude-3-5-opus-20240507"):
+            with patch("src.core.sdk_integration.get_model_for_agent", return_value="claude-opus-4-20250514"):
                 options = build_agent_options("reviewer", "You are the Reviewer.")
                 assert "Read" in options.allowed_tools
                 assert "Glob" in options.allowed_tools
@@ -277,7 +277,7 @@ class TestSDKAgentOptions:
             mock_s = MagicMock()
             mock_s.max_turns_subagent = 30
             mock_settings.return_value = mock_s
-            with patch("src.core.sdk_integration.get_model_for_agent", return_value="claude-3-5-sonnet-20241022"):
+            with patch("src.core.sdk_integration.get_model_for_agent", return_value="claude-sonnet-4-20250514"):
                 options = build_agent_options("formatter", "You are the Formatter.")
                 assert "Read" in options.allowed_tools
                 assert "Write" in options.allowed_tools
@@ -288,7 +288,7 @@ class TestSDKAgentOptions:
         """Test ClaudeAgentOptions serializes to SDK kwargs."""
         options = ClaudeAgentOptions(
             name="Test Agent",
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-20250514",
             system_prompt="Test prompt",
             max_turns=30,
             allowed_tools=["Read", "Glob"],
@@ -297,7 +297,7 @@ class TestSDKAgentOptions:
         )
         kwargs = options.to_sdk_kwargs()
         assert kwargs["name"] == "Test Agent"
-        assert kwargs["model"] == "claude-3-5-sonnet-20241022"
+        assert kwargs["model"] == "claude-sonnet-4-20250514"
         assert kwargs["max_turns"] == 30
         assert kwargs["allowed_tools"] == ["Read", "Glob"]
         assert kwargs["output_format"] == {"type": "object"}

@@ -74,7 +74,7 @@ class TestModelMapping:
         mapping = DEFAULT_MODEL_MAPPINGS[LLMProvider.ANTHROPIC]
 
         model = mapping.get_model("orchestrator")
-        assert model == "claude-3-5-opus-20240507"
+        assert model == "claude-opus-4-20250514"
 
     def test_get_model_missing_with_default(self):
         """Test getting missing model with default fallback."""

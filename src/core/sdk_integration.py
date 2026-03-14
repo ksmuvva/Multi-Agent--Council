@@ -243,10 +243,9 @@ def spawn_subagent(
     max_retries: int = 2,
 ) -> Dict[str, Any]:
     """
-    Spawn a subagent using the Claude Agent SDK.
+    Spawn a subagent using the Claude Agent SDK (synchronous wrapper).
 
-    Wraps the SDK's Task tool / query() method with retry logic,
-    cost tracking, and structured output validation.
+    For parallel execution, use spawn_subagent_async() instead.
 
     Args:
         options: Agent configuration
@@ -257,18 +256,57 @@ def spawn_subagent(
     Returns:
         Dictionary with status, output, tokens_used, cost_usd
     """
+    import asyncio
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        # Already inside an async context — run synchronously to avoid nesting
+        return _spawn_subagent_sync(options, input_data, retry_count, max_retries)
+    else:
+        return asyncio.run(
+            spawn_subagent_async(options, input_data, retry_count, max_retries)
+        )
+
+
+async def spawn_subagent_async(
+    options: ClaudeAgentOptions,
+    input_data: str,
+    retry_count: int = 0,
+    max_retries: int = 2,
+) -> Dict[str, Any]:
+    """
+    Spawn a subagent asynchronously using the Claude Agent SDK.
+
+    Supports parallel execution via asyncio.gather().
+
+    Args:
+        options: Agent configuration
+        input_data: The prompt/data to send to the subagent
+        retry_count: Current retry attempt (for internal recursion)
+        max_retries: Maximum retry attempts
+
+    Returns:
+        Dictionary with status, output, tokens_used, cost_usd
+    """
+    import asyncio
     import time
 
     start_time = time.time()
 
     try:
-        # Attempt SDK query
         sdk_kwargs = options.to_sdk_kwargs()
-        result = _execute_sdk_query(sdk_kwargs, input_data)
+        # Run the blocking SDK call in a thread pool to avoid blocking the event loop
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, lambda: _execute_sdk_query(sdk_kwargs, input_data)
+        )
 
         end_time = time.time()
 
-        # Parse and validate output
         output = result.get("output", "")
         tokens_used = result.get("tokens_used", 0)
         cost_usd = result.get("cost_usd", 0.0)
@@ -277,8 +315,7 @@ def spawn_subagent(
         if options.output_format and output:
             validated = _validate_output(output, options.output_format)
             if not validated and retry_count < max_retries:
-                # Retry with schema reminder
-                return spawn_subagent(
+                return await spawn_subagent_async(
                     options=options,
                     input_data=f"{input_data}\n\nIMPORTANT: Your response MUST conform to the JSON schema provided in output_format.",
                     retry_count=retry_count + 1,
@@ -296,13 +333,75 @@ def spawn_subagent(
         }
 
     except Exception as e:
-        # Retry on transient errors
         if retry_count < max_retries:
-            # Exponential backoff
-            import time as time_mod
+            # Async exponential backoff — non-blocking
             wait_seconds = 2 ** (retry_count + 1)
-            time_mod.sleep(wait_seconds)
-            return spawn_subagent(
+            await asyncio.sleep(wait_seconds)
+            return await spawn_subagent_async(
+                options=options,
+                input_data=input_data,
+                retry_count=retry_count + 1,
+                max_retries=max_retries,
+            )
+
+        return {
+            "status": "error",
+            "output": None,
+            "error": str(e),
+            "tokens_used": 0,
+            "cost_usd": 0.0,
+            "duration_ms": int((time.time() - start_time) * 1000),
+            "model": options.model,
+            "retries": retry_count,
+        }
+
+
+def _spawn_subagent_sync(
+    options: ClaudeAgentOptions,
+    input_data: str,
+    retry_count: int = 0,
+    max_retries: int = 2,
+) -> Dict[str, Any]:
+    """Synchronous fallback for spawn_subagent when already in async context."""
+    import time
+
+    start_time = time.time()
+
+    try:
+        sdk_kwargs = options.to_sdk_kwargs()
+        result = _execute_sdk_query(sdk_kwargs, input_data)
+
+        end_time = time.time()
+
+        output = result.get("output", "")
+        tokens_used = result.get("tokens_used", 0)
+        cost_usd = result.get("cost_usd", 0.0)
+
+        if options.output_format and output:
+            validated = _validate_output(output, options.output_format)
+            if not validated and retry_count < max_retries:
+                return _spawn_subagent_sync(
+                    options=options,
+                    input_data=f"{input_data}\n\nIMPORTANT: Your response MUST conform to the JSON schema provided in output_format.",
+                    retry_count=retry_count + 1,
+                    max_retries=max_retries,
+                )
+
+        return {
+            "status": "success",
+            "output": output,
+            "tokens_used": tokens_used,
+            "cost_usd": cost_usd,
+            "duration_ms": int((end_time - start_time) * 1000),
+            "model": options.model,
+            "retries": retry_count,
+        }
+
+    except Exception as e:
+        if retry_count < max_retries:
+            wait_seconds = 2 ** (retry_count + 1)
+            time.sleep(wait_seconds)
+            return _spawn_subagent_sync(
                 options=options,
                 input_data=input_data,
                 retry_count=retry_count + 1,
@@ -416,8 +515,15 @@ def _simulate_response(
     Simulate a response when no API is available.
 
     This is the fallback for development/testing without API keys.
-    WARNING: Not for production use - returns simulated data.
+    Requires ALLOW_SIMULATION=true environment variable to activate.
+    Raises RuntimeError in production to prevent silent fake data.
     """
+    if not os.getenv("ALLOW_SIMULATION", "").lower() in ("true", "1", "yes"):
+        raise RuntimeError(
+            "No LLM API available (neither claude_agent_sdk nor anthropic installed). "
+            "Set ALLOW_SIMULATION=true to use simulated responses for development."
+        )
+
     get_logger("sdk_integration").warning(
         f"Using simulated response - no API available for agent '{sdk_kwargs.get('name', 'Agent')}'"
     )
@@ -430,7 +536,12 @@ def _simulate_response(
 
 
 def _validate_output(output: Any, schema: Dict[str, Any]) -> bool:
-    """Validate output against JSON Schema."""
+    """
+    Validate output against JSON Schema using Pydantic or jsonschema.
+
+    Performs deep validation including types, nested objects, enum values,
+    and constraints — not just top-level key presence.
+    """
     if not output:
         return False
 
@@ -443,15 +554,63 @@ def _validate_output(output: Any, schema: Dict[str, Any]) -> bool:
         else:
             return False
 
-        # Basic schema validation - check required fields
+        # Attempt full JSON Schema validation
+        try:
+            from jsonschema import validate as jsonschema_validate, ValidationError
+            jsonschema_validate(instance=parsed, schema=schema)
+            return True
+        except ImportError:
+            pass
+        except ValidationError:
+            return False
+
+        # Fallback: use Pydantic model class if the schema has a 'title'
+        # that matches a known model name
+        title = schema.get("title", "")
+        if title:
+            try:
+                import src.schemas as schemas
+                model_class = getattr(schemas, title, None)
+                if model_class and hasattr(model_class, "model_validate"):
+                    model_class.model_validate(parsed)
+                    return True
+            except Exception:
+                return False
+
+        # Last resort: check required fields and their types
         required = schema.get("required", [])
+        properties = schema.get("properties", {})
         if required:
-            return all(key in parsed for key in required)
+            for key in required:
+                if key not in parsed:
+                    return False
+                # Validate type if specified
+                if key in properties:
+                    expected_type = properties[key].get("type")
+                    if expected_type and not _check_json_type(parsed[key], expected_type):
+                        return False
+            return True
 
         return True
 
     except (json.JSONDecodeError, TypeError):
         return False
+
+
+def _check_json_type(value: Any, json_type: str) -> bool:
+    """Check if a value matches a JSON Schema type."""
+    type_map = {
+        "string": str,
+        "integer": int,
+        "number": (int, float),
+        "boolean": bool,
+        "array": list,
+        "object": dict,
+    }
+    expected = type_map.get(json_type)
+    if expected is None:
+        return True  # Unknown type — don't block
+    return isinstance(value, expected)
 
 
 # =============================================================================

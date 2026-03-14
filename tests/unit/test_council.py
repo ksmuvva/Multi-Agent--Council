@@ -48,7 +48,7 @@ class TestCouncilChairInitialization:
     def test_default_initialization(self):
         """Test default init parameters."""
         agent = CouncilChairAgent(system_prompt_path="nonexistent.md")
-        assert agent.model == "claude-3-5-opus-20240507"
+        assert agent.model == "claude-opus-4-20250514"
         assert agent.max_turns == 30
 
     def test_domain_patterns_initialized(self):
@@ -248,7 +248,7 @@ class TestQualityArbiterInitialization:
     def test_default_initialization(self):
         """Test default init parameters."""
         agent = QualityArbiterAgent(system_prompt_path="nonexistent.md")
-        assert agent.model == "claude-3-5-opus-20240507"
+        assert agent.model == "claude-opus-4-20250514"
         assert agent.max_turns == 30
 
     def test_default_criteria_configured(self):
@@ -434,7 +434,7 @@ class TestEthicsAdvisorInitialization:
     def test_default_initialization(self):
         """Test default init parameters."""
         agent = EthicsAdvisorAgent(system_prompt_path="nonexistent.md")
-        assert agent.model == "claude-3-5-opus-20240507"
+        assert agent.model == "claude-opus-4-20250514"
         assert agent.max_turns == 30
 
     def test_pii_patterns_initialized(self):

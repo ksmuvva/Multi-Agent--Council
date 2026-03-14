@@ -384,26 +384,26 @@ def cost_estimate(
     """
     # Token costs per 1M tokens (approximate)
     INPUT_COSTS = {
-        "claude-3-5-opus-20240507": 15.0,
-        "claude-3-5-sonnet-20241022": 3.0,
-        "claude-3-5-haiku-20250101": 0.25,
+        "claude-opus-4-20250514": 15.0,
+        "claude-sonnet-4-20250514": 3.0,
+        "claude-haiku-4-5-20251001": 0.80,
     }
 
     OUTPUT_COSTS = {
-        "claude-3-5-opus-20240507": 75.0,
-        "claude-3-5-sonnet-20241022": 15.0,
-        "claude-3-5-haiku-20250101": 1.25,
+        "claude-opus-4-20250514": 75.0,
+        "claude-sonnet-4-20250514": 15.0,
+        "claude-haiku-4-5-20251001": 4.0,
     }
 
     # Model selection by tier
     TIER_MODELS = {
-        1: "claude-3-5-haiku-20250101",  # Fast, cheap
-        2: "claude-3-5-sonnet-20241022",
-        3: "claude-3-5-opus-20240507",
-        4: "claude-3-5-opus-20240507",  # Adversarial needs best
+        1: "claude-haiku-4-5-20251001",  # Fast, cheap
+        2: "claude-sonnet-4-20250514",
+        3: "claude-opus-4-20250514",
+        4: "claude-opus-4-20250514",  # Adversarial needs best
     }
 
-    model = TIER_MODELS.get(tier, "claude-3-5-sonnet-20241022")
+    model = TIER_MODELS.get(tier, "claude-sonnet-4-20250514")
 
     # Estimate tokens per turn
     TOKENS_PER_TURN = {

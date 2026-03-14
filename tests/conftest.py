@@ -110,7 +110,7 @@ def mock_agent_config():
     """Provide a mock agent configuration."""
     return {
         "name": "Analyst",
-        "model": "claude-3-5-sonnet-20241022",
+        "model": "claude-sonnet-4-20250514",
         "max_turns": 10,
         "temperature": 0.7,
     }
@@ -154,7 +154,7 @@ def mock_tier_classification():
 class MockClaudeResponse:
     """Mock Claude SDK response."""
 
-    def __init__(self, content: str, model: str = "claude-3-5-sonnet-20241022"):
+    def __init__(self, content: str, model: str = "claude-sonnet-4-20250514"):
         self.content = content
         self.model = model
         self.stop_reason = "end_turn"
@@ -431,7 +431,7 @@ def custom_assertions():
 def set_test_environment():
     """Set up test environment variables."""
     # Set test environment variables
-    os.environ["ANTHROPIC_API_KEY"] = "test_key_dummy"
+    os.environ["ANTHROPIC_API_KEY"] = "sk-ant-test-000000000000000000000000000000000000000000000000"
     os.environ["TESTING"] = "true"
 
     yield
@@ -464,7 +464,7 @@ def async_test(coro):
 def skip_if_no_api_key():
     """Decorator to skip tests if API key is not available."""
     return pytest.mark.skipif(
-        not os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY").startswith("test"),
+        not os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY").startswith("sk-ant-test"),
         reason="No real API key available"
     )
 

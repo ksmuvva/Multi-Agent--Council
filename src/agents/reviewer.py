@@ -47,7 +47,7 @@ class ReviewerAgent:
     def __init__(
         self,
         system_prompt_path: str = "config/agents/reviewer/CLAUDE.md",
-        model: str = "claude-3-5-opus-20240507",
+        model: str = "claude-opus-4-20250514",
         max_turns: int = 30,
     ):
         """
@@ -820,7 +820,7 @@ class ReviewerAgent:
 
 def create_reviewer(
     system_prompt_path: str = "config/agents/reviewer/CLAUDE.md",
-    model: str = "claude-3-5-opus-20240507",
+    model: str = "claude-opus-4-20250514",
 ) -> ReviewerAgent:
     """Create a configured Reviewer agent."""
     return ReviewerAgent(
