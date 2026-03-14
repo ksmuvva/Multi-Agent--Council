@@ -5,6 +5,7 @@ Extracts and preserves knowledge from completed tasks for future reuse.
 Writes knowledge files with YAML frontmatter to docs/knowledge/.
 """
 
+import logging
 import re
 import os
 from pathlib import Path
@@ -12,6 +13,8 @@ from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+
+logger = logging.getLogger("agents.memory_curator")
 
 try:
     import yaml
@@ -788,10 +791,31 @@ class MemoryCuratorAgent:
         return list(set(tags))
 
     def _find_related_topics(self, tags: List[str]) -> List[str]:
-        """Find related knowledge topics by tags."""
-        # In a real implementation, this would search existing knowledge files
-        # For now, return empty list
-        return []
+        """Find related knowledge topics by scanning existing knowledge files for shared tags."""
+        if not tags:
+            return []
+
+        tag_set = set(t.lower() for t in tags)
+        related = []
+
+        for filepath in self.knowledge_dir.glob("*.md"):
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+
+                frontmatter, _ = self._parse_knowledge_file(content)
+                file_tags = set(
+                    t.lower() for t in frontmatter.get("tags", [])
+                )
+
+                overlap = tag_set & file_tags
+                if overlap:
+                    topic = frontmatter.get("topic", filepath.stem)
+                    related.append(topic)
+            except Exception:
+                continue
+
+        return related[:10]
 
     def _generate_summary(
         self,
@@ -958,8 +982,9 @@ class MemoryCuratorAgent:
                         "summary": self._extract_summary_from_body(body),
                     })
 
-            except Exception:
-                continue  # Skip files that can't be read
+            except Exception as e:
+                logger.warning("Failed to read knowledge file '%s': %s", filepath, e)
+                continue
 
         # Sort by score and limit
         results.sort(key=lambda x: x["score"], reverse=True)
@@ -1055,7 +1080,8 @@ class MemoryCuratorAgent:
                     "filepath": str(filepath),
                 })
 
-            except Exception:
+            except Exception as e:
+                logger.warning("Failed to parse knowledge file '%s': %s", filepath, e)
                 continue
 
         # Sort by date (newest first)
