@@ -5,11 +5,14 @@ The single point of entry for all user requests and coordinator
 of all subagents in the Multi-Agent Reasoning System.
 """
 
+import logging
 import os
 import time
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 from datetime import datetime
+
+logger = logging.getLogger("agents.orchestrator")
 
 from src.core.complexity import (
     TierLevel,
@@ -1028,7 +1031,19 @@ class OrchestratorAgent:
             if verifier_result and critic_result:
                 v_verdict = self._parse_verdict(verifier_result.output)
                 c_verdict = self._parse_verdict(critic_result.output)
-                return v_verdict != c_verdict
+                if v_verdict != c_verdict:
+                    logger.info(
+                        "Debate triggered: Verifier (%s) and Critic (%s) disagree",
+                        v_verdict, c_verdict,
+                    )
+                    return True
+            elif verifier_result or critic_result:
+                ran = "Verifier" if verifier_result else "Critic"
+                missing = "Critic" if verifier_result else "Verifier"
+                logger.warning(
+                    "Only %s ran (missing %s) — escalating to debate", ran, missing
+                )
+                return True
 
         return False
 
@@ -1253,15 +1268,14 @@ class OrchestratorAgent:
         elif solution_parts:
             primary_solution = solution_parts[0]
         else:
-            # Fallback: use any available output
-            primary_solution = ""
+            # Fallback: combine all available outputs
+            fallback_parts = []
             for output in outputs:
                 if isinstance(output, str):
-                    primary_solution = output
-                    break
+                    fallback_parts.append(output)
                 elif isinstance(output, dict):
-                    primary_solution = output.get("content", str(output))
-                    break
+                    fallback_parts.append(output.get("content", str(output)))
+            primary_solution = "\n\n".join(fallback_parts)
 
         if not primary_solution:
             return "I apologize, but I wasn't able to generate a response."
