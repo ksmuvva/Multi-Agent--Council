@@ -486,14 +486,38 @@ class CriticAgent:
         return failure_modes
 
     def _imagine_worst_cases(self, solution: str) -> List[str]:
-        """Imagine worst case scenarios."""
-        return [
-            "Complete system failure",
-            "Data corruption or loss",
-            "Security breach",
-            "Service disruption",
-            "Incorrect results leading to wrong decisions",
-        ]
+        """Imagine worst-case scenarios based on the solution content."""
+        cases: List[str] = []
+        sol = solution.lower()
+
+        # Domain-specific worst cases derived from the solution
+        if any(kw in sol for kw in ("database", "sql", "query", "migration")):
+            cases.append("Data corruption or permanent loss from failed migration")
+        if any(kw in sol for kw in ("auth", "login", "password", "token", "oauth")):
+            cases.append("Authentication bypass leading to unauthorized access")
+        if any(kw in sol for kw in ("api", "endpoint", "request", "webhook")):
+            cases.append("API failure cascading to dependent services")
+        if any(kw in sol for kw in ("deploy", "release", "production", "rollout")):
+            cases.append("Failed deployment causing extended production outage")
+        if any(kw in sol for kw in ("async", "concurrent", "thread", "parallel")):
+            cases.append("Race condition causing silent data corruption")
+        if any(kw in sol for kw in ("encrypt", "secret", "credential", "key")):
+            cases.append("Credential exposure compromising system security")
+        if any(kw in sol for kw in ("cache", "memory", "buffer")):
+            cases.append("Memory exhaustion leading to cascading failures")
+        if any(kw in sol for kw in ("user", "input", "form", "upload")):
+            cases.append("Malicious input exploiting validation gaps")
+        if any(kw in sol for kw in ("payment", "billing", "transaction", "financial")):
+            cases.append("Financial data loss or incorrect transaction processing")
+        if any(kw in sol for kw in ("scale", "load", "traffic")):
+            cases.append("System collapse under unexpected load spike")
+
+        # Always include at least two general worst cases if few specific ones found
+        if len(cases) < 2:
+            cases.append("Complete system failure with no recovery path")
+            cases.append("Incorrect results leading to wrong downstream decisions")
+
+        return cases
 
     # ========================================================================
     # Conversion to Attack Lists

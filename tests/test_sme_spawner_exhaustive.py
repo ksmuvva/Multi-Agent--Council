@@ -912,7 +912,15 @@ class TestHelperMethods:
     def test_position_confidence(self, spawner):
         sme = make_spawned_sme()
         confidence = spawner._calculate_position_confidence(sme, "position")
-        assert confidence == 0.85
+        assert 0.5 <= confidence <= 0.98
+
+    def test_position_confidence_domain_aligned(self, spawner):
+        sme = make_spawned_sme(domain="security")
+        # Position mentioning the SME's domain should get higher confidence
+        high = spawner._calculate_position_confidence(
+            sme, "We should implement security controls")
+        low = spawner._calculate_position_confidence(sme, "short")
+        assert high > low
 
     def test_remaining_concerns_many_counter_args(self, spawner):
         sme = make_spawned_sme(domain="Cloud Infrastructure")

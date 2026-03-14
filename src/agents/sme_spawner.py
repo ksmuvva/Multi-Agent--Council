@@ -1000,9 +1000,31 @@ This section outlines key considerations from a {spawned_sme.domain} perspective
         spawned_sme: SpawnedSME,
         position: str,
     ) -> float:
-        """Calculate confidence in the debate position."""
-        # SMEs are generally confident in their domain positions
-        return 0.85
+        """Calculate confidence based on domain alignment and position specificity."""
+        confidence = 0.7  # baseline
+
+        # Higher confidence when the position text references the SME's domain
+        domain_lower = spawned_sme.domain.lower()
+        position_lower = position.lower()
+        if domain_lower in position_lower:
+            confidence += 0.1
+
+        # Higher confidence for positions with specific technical terms
+        technical_indicators = [
+            "should", "must", "recommend", "require", "implement",
+            "pattern", "architecture", "standard", "protocol",
+        ]
+        matches = sum(1 for t in technical_indicators if t in position_lower)
+        confidence += min(matches * 0.03, 0.12)
+
+        # Slightly lower confidence for very short or very long positions
+        word_count = len(position.split())
+        if word_count < 10:
+            confidence -= 0.05
+        elif word_count > 200:
+            confidence -= 0.05
+
+        return round(min(0.98, max(0.5, confidence)), 2)
 
     def _address_counter_arguments(
         self,
@@ -1070,12 +1092,57 @@ This section outlines key considerations from a {spawned_sme.domain} perspective
         return min(0.7, willingness)
 
     def _generate_debate_caveats(self, spawned_sme: SpawnedSME) -> List[str]:
-        """Generate caveats for the debate position."""
-        return [
-            "Position based on domain expertise and best practices",
-            "Willing to consider alternative approaches if evidence supports them",
-            "Recommend hybrid solution if pure approach has significant trade-offs",
-        ]
+        """Generate domain-specific caveats for the debate position."""
+        domain = spawned_sme.domain.lower()
+        caveats: List[str] = []
+
+        domain_caveats = {
+            "security": [
+                "Security recommendations assume a standard threat model; high-value targets may need additional hardening",
+                "Compliance requirements vary by jurisdiction and may impose stricter controls",
+            ],
+            "cloud": [
+                "Cloud architecture choices depend on expected scale and budget constraints",
+                "Multi-cloud strategies add resilience but also operational complexity",
+            ],
+            "data": [
+                "Data architecture recommendations assume current data volumes; growth projections may require re-evaluation",
+                "Data governance requirements may vary by regulatory context",
+            ],
+            "test": [
+                "Testing depth should be calibrated to the risk profile of each component",
+                "100% coverage is not always cost-effective; focus on critical paths",
+            ],
+            "devops": [
+                "CI/CD pipeline design depends on team size and deployment frequency",
+                "Infrastructure choices should balance automation with operational simplicity",
+            ],
+            "frontend": [
+                "UI/UX recommendations should be validated with actual user testing",
+                "Accessibility requirements may impose additional constraints",
+            ],
+            "ml": [
+                "Model performance claims require validation on representative data",
+                "Production ML systems need monitoring for data drift",
+            ],
+        }
+
+        for key, domain_specific in domain_caveats.items():
+            if key in domain:
+                caveats.extend(domain_specific)
+                break
+
+        if not caveats:
+            caveats.append(
+                f"Position based on {spawned_sme.domain} expertise; "
+                f"cross-domain trade-offs may shift the optimal approach"
+            )
+
+        caveats.append(
+            "Willing to consider alternative approaches if evidence supports them"
+        )
+
+        return caveats
 
     # ========================================================================
     # Utility Methods
