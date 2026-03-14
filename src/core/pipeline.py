@@ -210,7 +210,14 @@ class ExecutionPipeline:
         phases = self._get_phases_for_tier()
 
         # Run phases sequentially
+        skip_revision = False
         for phase in phases:
+            # Skip Phase 7 if verdict was PROCEED_TO_FORMATTER
+            if phase == Phase.PHASE_7_REVISION and skip_revision:
+                get_logger(__name__).info("Skipping Phase 7 (revision not needed)")
+                skip_revision = False
+                continue
+
             # Execute phase
             result = self.execute_phase(phase, agent_executor, initial_context)
 
@@ -233,6 +240,7 @@ class ExecutionPipeline:
                 elif action == MatrixAction.PROCEED_TO_FORMATTER:
                     # Skip Phase 7, proceed directly to Phase 8
                     get_logger(__name__).info("Verdict: PROCEED_TO_FORMATTER — skipping revision")
+                    skip_revision = True
                 elif action == MatrixAction.QUALITY_ARBITER:
                     # Invoke arbiter for dispute resolution
                     self._handle_verdict_action(action, initial_context)
@@ -376,10 +384,22 @@ class ExecutionPipeline:
         if isinstance(output, dict):
             verdict_str = output.get("verdict", "PASS").upper()
             return Verdict.PASS if verdict_str == "PASS" else Verdict.FAIL
+        if isinstance(output, str):
+            normalized = output.strip().upper()
+            if normalized == "PASS" or normalized.startswith("PASS"):
+                return Verdict.PASS
+            if normalized == "FAIL" or normalized.startswith("FAIL"):
+                return Verdict.FAIL
+            get_logger(__name__).warning(
+                "parse_verdict_unrecognized_string",
+                output_value=output[:100],
+                message="Unrecognized string verdict — defaulting to FAIL",
+            )
+            return Verdict.FAIL
         get_logger(__name__).warning(
             "parse_verdict_non_dict",
             output_type=type(output).__name__,
-            message="Non-dict agent output defaulting to FAIL verdict",
+            message="Non-dict/non-string agent output defaulting to FAIL verdict",
         )
         return Verdict.FAIL
 

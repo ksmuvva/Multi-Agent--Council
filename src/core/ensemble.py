@@ -952,10 +952,12 @@ def get_ensemble(ensemble_type: EnsembleType) -> Optional[EnsemblePattern]:
 
 def get_all_ensembles() -> Dict[EnsembleType, EnsemblePattern]:
     """Get all registered ensemble patterns."""
-    return {
-        ensemble_type: get_ensemble(ensemble_type)
-        for ensemble_type in EnsembleType
-    }
+    result = {}
+    for ensemble_type in EnsembleType:
+        instance = get_ensemble(ensemble_type)
+        if instance is not None:
+            result[ensemble_type] = instance
+    return result
 
 
 def suggest_ensemble(

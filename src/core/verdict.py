@@ -94,6 +94,10 @@ def evaluate_verdict_matrix(
     # Get base action from matrix
     action = VERDICT_MATRIX.get((verifier_verdict, critic_verdict))
 
+    # Guard against unknown verdict combinations
+    if action is None:
+        action = MatrixAction.FULL_REGENERATION
+
     # Check if we've exceeded revision cycles
     can_retry = revision_cycle < max_revisions
 

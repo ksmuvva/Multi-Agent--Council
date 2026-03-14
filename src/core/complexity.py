@@ -277,11 +277,13 @@ def classify_complexity(
         escalation_risk += 0.2
     if tier_score == 2:
         escalation_risk += 0.15
+    if escalation_needed:
+        escalation_risk += 0.3
 
     return TierClassification(
         tier=tier_enum,
         reasoning=". ".join(reasoning_parts),
-        confidence=0.8 if tier_score >= 3 else 0.7,
+        confidence=0.9 if tier_score >= 3 else 0.75 if tier_score == 2 else 0.85,
         estimated_agents=config["agent_count"],
         requires_council=config["requires_council"],
         requires_smes=config["requires_smes"],
