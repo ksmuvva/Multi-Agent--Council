@@ -5,11 +5,14 @@ Gathers evidence from external sources using WebSearch and WebFetch,
 producing EvidenceBrief with confidence levels and source reliability.
 """
 
+import logging
 import re
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
 from urllib.parse import urlparse
+
+logger = logging.getLogger("agents.researcher")
 
 from src.schemas.researcher import (
     EvidenceBrief,
@@ -256,8 +259,8 @@ class ResearcherAgent:
                 parsed = self._parse_search_output(result["output"])
                 if parsed:
                     return parsed
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("WebSearch subagent failed for query '%s': %s", query, e)
 
         # Try direct Anthropic API for research
         try:
@@ -285,8 +288,8 @@ class ResearcherAgent:
             parsed = self._parse_search_output(output)
             if parsed:
                 return parsed
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Anthropic API search failed for query '%s': %s", query, e)
 
         # Final fallback: derive results from query analysis
         return self._build_search_results_for_query(query)
@@ -363,25 +366,47 @@ class ResearcherAgent:
         if matched_domain:
             results.append(SearchResult(
                 url=f"https://{matched_domain}/en/latest/{slug}",
-                title=f"{matched_label}: {query}",
-                snippet=f"Official documentation covering {query}. "
+                title=f"[FALLBACK] {matched_label}: {query}",
+                snippet=f"[Derived, not fetched] Official documentation covering {query}. "
                         f"Includes API references, usage examples, and best practices.",
-                relevance_score=0.65,  # Lower score: fallback-derived
+                relevance_score=0.35,
             ))
         else:
             results.append(SearchResult(
                 url=f"https://devdocs.io/search/{slug}",
-                title=f"DevDocs Reference: {query}",
-                snippet=f"Developer documentation and API reference for {query}.",
-                relevance_score=0.55,  # Lower score: fallback-derived
+                title=f"[FALLBACK] DevDocs Reference: {query}",
+                snippet=f"[Derived, not fetched] Developer documentation and API reference for {query}.",
+                relevance_score=0.25,
             ))
 
         results.append(SearchResult(
             url=f"https://stackoverflow.com/questions/tagged/{slug}",
-            title=f"Stack Overflow: {query} - Top Questions",
-            snippet=f"Community answers and discussions about {query}.",
-            relevance_score=0.50,  # Lower score: fallback-derived
+            title=f"[FALLBACK] Stack Overflow: {query} - Top Questions",
+            snippet=f"[Derived, not fetched] Community answers and discussions about {query}.",
+            relevance_score=0.20,
         ))
+
+        # Add tutorial/guide result for how-to queries
+        guide_keywords = ["how to", "tutorial", "guide", "best practices", "learn"]
+        if any(kw in query_lower for kw in guide_keywords):
+            results.append(SearchResult(
+                url=f"https://realpython.com/{slug}/",
+                title=f"[FALLBACK] Real Python: {query}",
+                snippet=f"[Derived, not fetched] Tutorial and guide for {query}.",
+                relevance_score=0.15,
+            ))
+        else:
+            results.append(SearchResult(
+                url=f"https://github.com/search?q={slug}",
+                title=f"[FALLBACK] GitHub: {query}",
+                snippet=f"[Derived, not fetched] Open source projects related to {query}.",
+                relevance_score=0.15,
+            ))
+
+        logger.info(
+            "Using fallback-derived search results for query '%s' "
+            "(WebSearch and API both unavailable)", query
+        )
 
         return results
 
@@ -442,8 +467,8 @@ class ResearcherAgent:
                 text = output if isinstance(output, str) else str(output)
                 if len(text) > 50 and "[Simulated" not in text:
                     return (text, True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("WebFetch subagent failed for URL '%s': %s", url, e)
 
         # Try direct Anthropic API for content extraction
         try:
@@ -472,8 +497,8 @@ class ResearcherAgent:
 
             if len(output) > 50:
                 return (output, True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Anthropic API content fetch failed for URL '%s': %s", url, e)
 
         return ("", False)
 
