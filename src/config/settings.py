@@ -546,7 +546,7 @@ class Settings(BaseSettings):
             return default_model
 
         # Ultimate fallback
-        return self.default_model or "claude-3-5-sonnet-20241022"
+        return self.default_model or "claude-sonnet-4-20250514"
 
     def get_provider_config(self) -> Dict[str, Any]:
         """
