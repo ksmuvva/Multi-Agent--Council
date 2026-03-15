@@ -210,12 +210,18 @@ class PlannerAgent:
             ))
         elif "design" in description_lower:
             # Check if SME should be involved
-            if sme_selections and any("architect" in s.lower() for s in sme_selections):
-                assignments.append(AgentAssignment(
-                    agent_name="Cloud Architect SME",  # Example
-                    role="Domain-specific design",
-                    reason="SME has domain expertise"
-                ))
+            if sme_selections:
+                # Dynamically select the matching SME from the provided selections
+                architect_sme = next(
+                    (s for s in sme_selections if "architect" in s.lower()),
+                    None,
+                )
+                if architect_sme:
+                    assignments.append(AgentAssignment(
+                        agent_name=architect_sme,
+                        role="Domain-specific design",
+                        reason="SME has domain expertise",
+                    ))
             assignments.append(AgentAssignment(
                 agent_name="Planner",
                 role="Create design",

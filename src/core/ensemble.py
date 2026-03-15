@@ -323,6 +323,14 @@ class EnsemblePattern(ABC):
                 if assignment.role == AgentRole.QUALITY_GATE:
                     quality_gate_results[agent_key] = result["success"]
 
+                # Collect recommendations from reviewer/quality gate outputs
+                if assignment.role in (AgentRole.QUALITY_GATE, AgentRole.REVIEWER):
+                    output_text = str(result.get("output", ""))
+                    if output_text and result["success"]:
+                        recommendations.append(
+                            f"[{assignment.agent_name}] {output_text[:200]}"
+                        )
+
                 # Add this agent's output to context for downstream agents
                 ctx["prior_outputs"][assignment.agent_name] = result["output"]
 

@@ -15,6 +15,13 @@ from enum import Enum
 from collections import defaultdict
 from queue import Queue, Empty
 
+from .logging import get_logger
+
+
+def _get_events_logger():
+    """Lazy logger getter to avoid circular imports."""
+    return get_logger("events")
+
 
 # =============================================================================
 # Event Types
@@ -108,6 +115,7 @@ class EventEmitter:
         self._event_history: List[Event] = []
         self._max_history = 1000
         self._lock = threading.Lock()
+        self._logger = _get_events_logger()
 
     def subscribe(
         self,

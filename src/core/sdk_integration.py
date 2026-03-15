@@ -299,9 +299,8 @@ def spawn_subagent(
         # Retry on transient errors
         if retry_count < max_retries:
             # Exponential backoff
-            import time as time_mod
             wait_seconds = 2 ** (retry_count + 1)
-            time_mod.sleep(wait_seconds)
+            time.sleep(wait_seconds)
             return spawn_subagent(
                 options=options,
                 input_data=input_data,
@@ -465,7 +464,11 @@ def create_sdk_mcp_server() -> Dict[str, Any]:
     Returns:
         MCP server configuration dictionary
     """
-    from src.tools.custom_tools import get_all_tools
+    try:
+        from src.tools.custom_tools import get_all_tools
+    except ImportError:
+        get_logger("sdk_integration").warning("Custom tools module not available")
+        return {"name": "multi-agent-reasoning", "version": "1.0.0", "tools": [], "tool_count": 0}
 
     tools = get_all_tools()
 

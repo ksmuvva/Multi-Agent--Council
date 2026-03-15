@@ -92,7 +92,10 @@ def evaluate_verdict_matrix(
         MatrixOutcome with action and reasoning
     """
     # Get base action from matrix
-    action = VERDICT_MATRIX.get((verifier_verdict, critic_verdict))
+    action = VERDICT_MATRIX.get(
+        (verifier_verdict, critic_verdict),
+        MatrixAction.EXECUTOR_REVISE,  # Safe default if key not found
+    )
 
     # Check if we've exceeded revision cycles
     can_retry = revision_cycle < max_revisions
