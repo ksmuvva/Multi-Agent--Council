@@ -15,6 +15,8 @@ from datetime import datetime
 from enum import Enum
 
 from src.schemas.analyst import ModalityType
+from src.utils.logging import get_agent_logger, AgentLogContext
+from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
 
 
 class OutputFormat(str, Enum):
@@ -68,6 +70,10 @@ class FormatterAgent:
         # Ensure output directory exists
         os.makedirs(self.output_dir, exist_ok=True)
 
+        # Structured logger
+        self.logger = get_agent_logger("formatter")
+        self.logger.info("FormatterAgent initialized", model=model, output_dir=output_dir)
+
         # Code syntax validation commands
         self.syntax_validation = {
             "python": "python -m py_compile {file}",
@@ -96,11 +102,19 @@ class FormatterAgent:
         Returns:
             Dictionary with formatted output and metadata
         """
+        with AgentLogContext("formatter", phase="formatting"):
+            self.logger.info("formatter.started",
+                             target_format=target_format,
+                             content_length=len(str(raw_content)),
+                             has_file_path=file_path is not None)
+            emit_agent_started("formatter", "formatting")
+
         # Normalize format
         try:
             format_enum = OutputFormat(target_format.lower())
         except ValueError:
             format_enum = self._infer_format(raw_content, context)
+            self.logger.info("formatter.format_inferred", inferred_format=format_enum.value)
 
         # Format based on type
         if format_enum == OutputFormat.MARKDOWN:
@@ -119,7 +133,7 @@ class FormatterAgent:
         else:
             output = self._format_text(raw_content, context)
 
-        return {
+        result = {
             "formatted_output": output,
             "format": format_enum.value,
             "file_path": file_path if format_enum == OutputFormat.CODE else None,
@@ -128,6 +142,11 @@ class FormatterAgent:
                 "size_bytes": len(str(output)) if isinstance(output, str) else 0,
             }
         }
+        self.logger.info("formatter.completed",
+                         format=format_enum.value,
+                         output_size=result["metadata"]["size_bytes"])
+        emit_agent_completed("formatter", f"Formatted as {format_enum.value}")
+        return result
 
     # ========================================================================
     # Format Implementations

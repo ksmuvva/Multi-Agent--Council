@@ -17,6 +17,8 @@ from src.schemas.reviewer import (
     QualityGateResults,
     ArbitrationInput,
 )
+from src.utils.logging import get_agent_logger, AgentLogContext
+from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
 
 
 @dataclass
@@ -62,6 +64,7 @@ class ReviewerAgent:
         self.model = model
         self.max_turns = max_turns
         self.system_prompt = self._load_system_prompt()
+        self.logger = get_agent_logger("reviewer")
 
         # Verdict matrix: (verifier_verdict, critic_verdict) -> action
         self.verdict_matrix = {
@@ -119,65 +122,114 @@ class ReviewerAgent:
         Returns:
             ReviewVerdict with pass/fail decision and revision instructions
         """
-        # Step 1: Run all quality gate checks
-        quality_gates = self._run_quality_gates(
-            output, context, verifier_report, critic_report, code_review_report
+        self.logger.info(
+            "review_started",
+            output_length=len(output),
+            original_request=context.original_request[:100],
+            tier_level=context.tier_level,
+            revision_count=context.revision_count,
+            is_code_output=context.is_code_output,
         )
+        emit_agent_started("reviewer", phase="review")
 
-        # Step 2: Check for critical failures
-        critical_failures = self._check_critical_failures(
-            output, verifier_report, critic_report, code_review_report
-        )
-
-        # Step 3: Determine verdict
-        verdict = self._determine_verdict(
-            quality_gates, critical_failures, context
-        )
-
-        # Step 4: Get verdicts from Verifier and Critic
-        verifier_verdict = self._extract_verifier_verdict(verifier_report)
-        critic_verdict = self._extract_critic_verdict(critic_report)
-
-        # Step 5: Apply verdict matrix
-        matrix_action = self._apply_verdict_matrix(verifier_verdict, critic_verdict)
-
-        # Step 6: Generate reasons
-        reasons = self._generate_reasons(
-            verdict, quality_gates, critical_failures, matrix_action
-        )
-
-        # Step 7: Generate revision instructions if FAIL
-        revision_instructions = []
-        if verdict == Verdict.FAIL:
-            revision_instructions = self._generate_revision_instructions(
-                quality_gates, critical_failures, matrix_action, context
+        try:
+            # Step 1: Run all quality gate checks
+            quality_gates = self._run_quality_gates(
+                output, context, verifier_report, critic_report, code_review_report
             )
 
-        # Step 8: Check if arbitration needed (Tier 4 disagreement)
-        arbitration_needed, arbitration_input = self._check_arbitration_needed(
-            verdict, verifier_verdict, critic_verdict, context
-        )
+            # Log quality scores
+            self.logger.debug(
+                "quality_gates_complete",
+                completeness_passed=quality_gates.completeness.passed,
+                consistency_passed=quality_gates.consistency.passed,
+                verifier_signoff_passed=quality_gates.verifier_signoff.passed,
+                critic_findings_passed=quality_gates.critic_findings_addressed.passed,
+                readability_passed=quality_gates.readability.passed,
+            )
 
-        # Step 9: Generate summary
-        summary = self._generate_summary(verdict, reasons, context)
+            # Step 2: Check for critical failures
+            critical_failures = self._check_critical_failures(
+                output, verifier_report, critic_report, code_review_report
+            )
 
-        # Step 10: Determine if can revise
-        can_revise = context.revision_count < context.max_revisions
+            # Step 3: Determine verdict
+            verdict = self._determine_verdict(
+                quality_gates, critical_failures, context
+            )
 
-        return ReviewVerdict(
-            verdict=verdict,
-            confidence=self._calculate_confidence(quality_gates, critical_failures),
-            quality_gate_results=quality_gates,
-            reasons=reasons,
-            revision_instructions=revision_instructions,
-            revision_count=context.revision_count,
-            max_revisions=context.max_revisions,
-            can_revise=can_revise,
-            arbitration_needed=arbitration_needed,
-            arbitration_input=arbitration_input,
-            summary=summary,
-            tier_4_arbiter_involved=(arbitration_input is not None),
-        )
+            # Step 4: Get verdicts from Verifier and Critic
+            verifier_verdict = self._extract_verifier_verdict(verifier_report)
+            critic_verdict = self._extract_critic_verdict(critic_report)
+
+            # Step 5: Apply verdict matrix
+            matrix_action = self._apply_verdict_matrix(verifier_verdict, critic_verdict)
+
+            # Step 6: Generate reasons
+            reasons = self._generate_reasons(
+                verdict, quality_gates, critical_failures, matrix_action
+            )
+
+            # Step 7: Generate revision instructions if FAIL
+            revision_instructions = []
+            if verdict == Verdict.FAIL:
+                revision_instructions = self._generate_revision_instructions(
+                    quality_gates, critical_failures, matrix_action, context
+                )
+
+            self.logger.debug(
+                "recommendations_generated",
+                recommendation_count=len(revision_instructions),
+                matrix_action=matrix_action,
+            )
+
+            # Step 8: Check if arbitration needed (Tier 4 disagreement)
+            arbitration_needed, arbitration_input = self._check_arbitration_needed(
+                verdict, verifier_verdict, critic_verdict, context
+            )
+
+            # Step 9: Generate summary
+            summary = self._generate_summary(verdict, reasons, context)
+
+            # Step 10: Determine if can revise
+            can_revise = context.revision_count < context.max_revisions
+
+            review_verdict = ReviewVerdict(
+                verdict=verdict,
+                confidence=self._calculate_confidence(quality_gates, critical_failures),
+                quality_gate_results=quality_gates,
+                reasons=reasons,
+                revision_instructions=revision_instructions,
+                revision_count=context.revision_count,
+                max_revisions=context.max_revisions,
+                can_revise=can_revise,
+                arbitration_needed=arbitration_needed,
+                arbitration_input=arbitration_input,
+                summary=summary,
+                tier_4_arbiter_involved=(arbitration_input is not None),
+            )
+
+            self.logger.info(
+                "review_completed",
+                verdict=verdict.value,
+                confidence=review_verdict.confidence,
+                revision_count=len(revision_instructions),
+                arbitration_needed=arbitration_needed,
+                summary=summary,
+            )
+            emit_agent_completed("reviewer", output_summary=summary)
+
+            return review_verdict
+
+        except Exception as e:
+            self.logger.error(
+                "review_failed",
+                error_type=type(e).__name__,
+                error_message=str(e),
+                exc_info=True,
+            )
+            emit_error("reviewer", error_message=str(e), error_type=type(e).__name__)
+            raise
 
     # ========================================================================
     # Quality Gate Checks

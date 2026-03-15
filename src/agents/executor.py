@@ -13,6 +13,8 @@ from enum import Enum
 from pathlib import Path
 
 from src.schemas.analyst import ModalityType, TaskIntelligenceReport
+from src.utils.logging import get_agent_logger, AgentLogContext
+from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
 
 
 class ThoughtBranch(str, Enum):
@@ -103,6 +105,8 @@ class ExecutorAgent:
         # Output directory for generated files
         self.output_dir = "output"
 
+        self.logger = get_agent_logger("executor")
+
     def execute(
         self,
         task: str,
@@ -122,37 +126,79 @@ class ExecutorAgent:
         Returns:
             ExecutionResult with output and metadata
         """
-        start_time = time.time()
+        self.logger.info(
+            "execution_started",
+            task=task[:200],
+            has_analyst_report=analyst_report is not None,
+            has_sme_advisory=sme_advisory is not None,
+        )
+        emit_agent_started("executor", phase="execute")
 
-        # Step 1: Decompose the problem
-        sub_problems = self._decompose_problem(task, analyst_report)
+        try:
+            start_time = time.time()
 
-        # Step 2: Generate approaches for each sub-problem
-        approaches = self._generate_approaches(sub_problems, analyst_report)
+            # Step 1: Decompose the problem
+            sub_problems = self._decompose_problem(task, analyst_report)
 
-        # Step 3: Score and rank approaches
-        scored_approaches = self._score_approaches(approaches, task, analyst_report)
+            # Step 2: Generate approaches for each sub-problem
+            approaches = self._generate_approaches(sub_problems, analyst_report)
 
-        # Step 4: Select best approach
-        selected_approach = self._select_best_approach(scored_approaches)
+            # Step 3: Score and rank approaches
+            scored_approaches = self._score_approaches(approaches, task, analyst_report)
 
-        # Step 5: Incorporate SME advice if provided
-        if sme_advisory:
-            selected_approach = self._adapt_to_sme_advice(
-                selected_approach, sme_advisory
+            # Step 4: Select best approach
+            selected_approach = self._select_best_approach(scored_approaches)
+
+            self.logger.info(
+                "approach_selected",
+                approach=selected_approach.name,
+                score=selected_approach.score,
+                complexity=selected_approach.complexity,
             )
 
-        # Step 6: Execute the selected approach
-        execution_result = self._execute_approach(
-            selected_approach, task, context
-        )
+            # Step 5: Incorporate SME advice if provided
+            if sme_advisory:
+                selected_approach = self._adapt_to_sme_advice(
+                    selected_approach, sme_advisory
+                )
 
-        # Step 7: Validate output
-        execution_result = self._validate_output(execution_result)
+            # Step 6: Execute the selected approach
+            execution_result = self._execute_approach(
+                selected_approach, task, context
+            )
 
-        execution_result.execution_time = time.time() - start_time
+            output_length = len(str(execution_result.output)) if execution_result.output else 0
+            self.logger.info(
+                "solution_generated",
+                approach=selected_approach.name,
+                status=execution_result.status,
+                output_length=output_length,
+            )
 
-        return execution_result
+            # Step 7: Validate output
+            execution_result = self._validate_output(execution_result)
+
+            execution_result.execution_time = time.time() - start_time
+
+            self.logger.info(
+                "execution_completed",
+                approach=execution_result.approach_name,
+                status=execution_result.status,
+                quality_score=execution_result.quality_score,
+                execution_time=execution_result.execution_time,
+                files_created=len(execution_result.files_created),
+            )
+            emit_agent_completed(
+                "executor",
+                output_summary=f"Executed '{execution_result.approach_name}': status={execution_result.status}, quality={execution_result.quality_score:.2f}",
+            )
+
+            return execution_result
+
+        except Exception as e:
+            self.logger.error("execution_failed", task=task[:200], error=str(e), exc_info=True)
+            emit_error("executor", error_message=str(e), error_type=type(e).__name__)
+            raise
 
     # ========================================================================
     # Tree of Thoughts Methods

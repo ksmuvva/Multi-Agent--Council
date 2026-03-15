@@ -8,6 +8,10 @@ perspective comparison, argument tracking, and consensus scoring.
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
+
+from src.utils.logging import get_logger
+
+_logger = get_logger("debate_viewer")
 from enum import Enum
 
 import streamlit as st

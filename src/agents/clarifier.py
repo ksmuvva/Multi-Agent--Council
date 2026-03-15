@@ -15,6 +15,8 @@ from src.schemas.clarifier import (
     ImpactAssessment,
 )
 from src.schemas.analyst import TaskIntelligenceReport, MissingInfo, SeverityLevel
+from src.utils.logging import get_agent_logger, AgentLogContext
+from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
 
 
 class ClarifierAgent:
@@ -46,6 +48,7 @@ class ClarifierAgent:
         self.model = model
         self.max_turns = max_turns
         self.system_prompt = self._load_system_prompt()
+        self.logger = get_agent_logger("clarifier")
 
         # Priority scoring factors
         self.priority_weights = {
@@ -71,42 +74,82 @@ class ClarifierAgent:
         Returns:
             ClarificationRequest with ranked questions
         """
-        if not analyst_report.missing_info:
-            # No missing info - return empty request
-            return ClarificationRequest(
-                total_questions=0,
-                questions=[],
-                recommended_workflow="No clarifications needed - proceeding with task",
-                can_proceed_with_defaults=True,
-                expected_quality_with_defaults="High quality expected",
+        self.logger.info(
+            "clarifier_started",
+            request_length=len(analyst_report.literal_request),
+        )
+        emit_agent_started("clarifier", phase="clarification")
+
+        try:
+            if not analyst_report.missing_info:
+                # No missing info - return empty request
+                self.logger.info(
+                    "clarifier_completed",
+                    ambiguity_count=0,
+                    question_count=0,
+                )
+                emit_agent_completed(
+                    "clarifier",
+                    output_summary="no clarifications needed",
+                )
+                return ClarificationRequest(
+                    total_questions=0,
+                    questions=[],
+                    recommended_workflow="No clarifications needed - proceeding with task",
+                    can_proceed_with_defaults=True,
+                    expected_quality_with_defaults="High quality expected",
+                )
+
+            # Generate questions from missing info
+            ambiguity_count = len(analyst_report.missing_info)
+            self.logger.debug("ambiguities_detected", ambiguity_count=ambiguity_count)
+
+            questions = self._generate_questions(
+                analyst_report.missing_info,
+                analyst_report.literal_request,
+                context
             )
 
-        # Generate questions from missing info
-        questions = self._generate_questions(
-            analyst_report.missing_info,
-            analyst_report.literal_request,
-            context
-        )
+            # Rank questions by priority
+            questions = self._rank_questions(questions)
 
-        # Rank questions by priority
-        questions = self._rank_questions(questions)
+            # Limit to max_questions
+            questions = questions[:max_questions]
 
-        # Limit to max_questions
-        questions = questions[:max_questions]
+            self.logger.debug("questions_generated", question_count=len(questions))
 
-        # Determine workflow and quality assessment
-        total_questions = len(questions)
-        has_critical = any(q.priority == QuestionPriority.CRITICAL for q in questions)
+            # Determine workflow and quality assessment
+            total_questions = len(questions)
+            has_critical = any(q.priority == QuestionPriority.CRITICAL for q in questions)
 
-        return ClarificationRequest(
-            total_questions=total_questions,
-            questions=questions,
-            recommended_workflow=self._determine_workflow(questions, has_critical),
-            can_proceed_with_defaults=self._can_proceed_with_defaults(questions),
-            expected_quality_with_defaults=self._assess_quality_with_defaults(
-                questions, analyst_report
-            ),
-        )
+            result = ClarificationRequest(
+                total_questions=total_questions,
+                questions=questions,
+                recommended_workflow=self._determine_workflow(questions, has_critical),
+                can_proceed_with_defaults=self._can_proceed_with_defaults(questions),
+                expected_quality_with_defaults=self._assess_quality_with_defaults(
+                    questions, analyst_report
+                ),
+            )
+
+            self.logger.info(
+                "clarifier_completed",
+                ambiguity_count=ambiguity_count,
+                question_count=total_questions,
+                has_critical=has_critical,
+                can_proceed_with_defaults=result.can_proceed_with_defaults,
+            )
+            emit_agent_completed(
+                "clarifier",
+                output_summary=f"questions={total_questions} ambiguities={ambiguity_count} critical={has_critical}",
+            )
+
+            return result
+
+        except Exception as e:
+            self.logger.error("clarifier_failed", error=str(e), exc_info=True)
+            emit_error("clarifier", error_message=str(e), error_type=type(e).__name__)
+            raise
 
     # ========================================================================
     # Question Generation Methods

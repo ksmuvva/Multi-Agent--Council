@@ -18,6 +18,8 @@ from src.schemas.verifier import (
     VerificationStatus,
     FabricationRisk,
 )
+from src.utils.logging import get_agent_logger, AgentLogContext
+from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
 
 
 @dataclass
@@ -81,6 +83,8 @@ class VerifierAgent:
             "estimated", "around", "about",
         ]
 
+        self.logger = get_agent_logger("verifier")
+
     def verify(
         self,
         content: str,
@@ -100,71 +104,120 @@ class VerifierAgent:
         Returns:
             VerificationReport with all claims and their verification status
         """
-        # Step 1: Extract claims
-        extraction = self._extract_claims(content)
+        self.logger.info(
+            "verification_started",
+            content_length=len(content),
+            has_sources=sources is not None,
+            has_sme_verifications=sme_verifications is not None,
+        )
+        emit_agent_started("verifier", phase="verify")
 
-        # Step 2: Verify each claim
-        verified_claims = []
-        for claim in extraction.claims:
-            claim_verification = self._verify_claim(
-                claim,
-                content,
-                sources,
-                sme_verifications
+        try:
+            # Step 1: Extract claims
+            extraction = self._extract_claims(content)
+
+            # Step 2: Verify each claim
+            verified_claims = []
+            for claim in extraction.claims:
+                claim_verification = self._verify_claim(
+                    claim,
+                    content,
+                    sources,
+                    sme_verifications
+                )
+                verified_claims.append(claim_verification)
+
+            # Step 3: Count by status
+            verified_count = sum(
+                1 for c in verified_claims
+                if c.status == VerificationStatus.VERIFIED
             )
-            verified_claims.append(claim_verification)
+            unverified_count = sum(
+                1 for c in verified_claims
+                if c.status == VerificationStatus.UNVERIFIED
+            )
+            contradicted_count = sum(
+                1 for c in verified_claims
+                if c.status == VerificationStatus.CONTRADICTED
+            )
+            fabricated_count = sum(
+                1 for c in verified_claims
+                if c.status == VerificationStatus.FABRICATED
+            )
 
-        # Step 3: Count by status
-        verified_count = sum(
-            1 for c in verified_claims
-            if c.status == VerificationStatus.VERIFIED
-        )
-        unverified_count = sum(
-            1 for c in verified_claims
-            if c.status == VerificationStatus.UNVERIFIED
-        )
-        contradicted_count = sum(
-            1 for c in verified_claims
-            if c.status == VerificationStatus.CONTRADICTED
-        )
-        fabricated_count = sum(
-            1 for c in verified_claims
-            if c.status == VerificationStatus.FABRICATED
-        )
+            self.logger.info(
+                "claims_checked",
+                total=len(verified_claims),
+                verified=verified_count,
+                unverified=unverified_count,
+                contradicted=contradicted_count,
+                fabricated=fabricated_count,
+            )
 
-        # Step 4: Calculate overall reliability
-        total_claims = len(verified_claims)
-        overall_reliability = verified_count / total_claims if total_claims > 0 else 0.5
+            # Step 4: Calculate overall reliability
+            total_claims = len(verified_claims)
+            overall_reliability = verified_count / total_claims if total_claims > 0 else 0.5
 
-        # Step 5: Get flagged claims (need correction)
-        flagged_claims = [
-            c for c in verified_claims
-            if c.confidence < 7 or c.fabrication_risk != FabricationRisk.LOW
-        ]
+            # Step 5: Get flagged claims (need correction)
+            flagged_claims = [
+                c for c in verified_claims
+                if c.confidence < 7 or c.fabrication_risk != FabricationRisk.LOW
+            ]
 
-        # Step 6: Generate recommended corrections
-        recommended_corrections = self._generate_corrections(flagged_claims)
+            # Step 6: Generate recommended corrections
+            recommended_corrections = self._generate_corrections(flagged_claims)
 
-        # Step 7: Build verification summary
-        verification_summary = self._build_summary(
-            total_claims, verified_count, unverified_count,
-            contradicted_count, fabricated_count, overall_reliability
-        )
+            # Step 7: Build verification summary
+            verification_summary = self._build_summary(
+                total_claims, verified_count, unverified_count,
+                contradicted_count, fabricated_count, overall_reliability
+            )
 
-        return VerificationReport(
-            total_claims_checked=total_claims,
-            claims=verified_claims,
-            verified_claims=verified_count,
-            unverified_claims=unverified_count,
-            contradicted_claims=contradicted_count,
-            fabricated_claims=fabricated_count,
-            overall_reliability=round(overall_reliability, 2),
-            pass_threshold=0.7,
-            verdict="PASS" if overall_reliability >= 0.7 else "FAIL",
-            flagged_claims=flagged_claims,
-            recommended_corrections=recommended_corrections,
-            verification_summary=verification_summary,
-        )
+            verdict = "PASS" if overall_reliability >= 0.7 else "FAIL"
+
+            self.logger.info(
+                "verdict_determined",
+                verdict=verdict,
+                overall_reliability=round(overall_reliability, 2),
+                pass_threshold=0.7,
+            )
+
+            result = VerificationReport(
+                total_claims_checked=total_claims,
+                claims=verified_claims,
+                verified_claims=verified_count,
+                unverified_claims=unverified_count,
+                contradicted_claims=contradicted_count,
+                fabricated_claims=fabricated_count,
+                overall_reliability=round(overall_reliability, 2),
+                pass_threshold=0.7,
+                verdict=verdict,
+                flagged_claims=flagged_claims,
+                recommended_corrections=recommended_corrections,
+                verification_summary=verification_summary,
+            )
+
+            self.logger.info(
+                "verification_completed",
+                total_claims=total_claims,
+                verified=verified_count,
+                unverified=unverified_count,
+                contradicted=contradicted_count,
+                fabricated=fabricated_count,
+                verdict=verdict,
+                overall_reliability=round(overall_reliability, 2),
+            )
+            emit_agent_completed(
+                "verifier",
+                output_summary=f"Verification {verdict}: {verified_count}/{total_claims} claims verified, reliability={overall_reliability:.2f}",
+            )
+
+            return result
+
+        except Exception as e:
+            self.logger.error("verification_failed", error=str(e), exc_info=True)
+            emit_error("verifier", error_message=str(e), error_type=type(e).__name__)
+            raise
 
     # ========================================================================
     # Claim Extraction

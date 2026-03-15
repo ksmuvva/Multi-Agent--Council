@@ -13,6 +13,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 
+from src.utils.logging import get_agent_logger, AgentLogContext
+from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
+
 try:
     import yaml
     HAS_YAML = True
@@ -107,11 +110,13 @@ class MemoryCuratorAgent:
         self.system_prompt_path = system_prompt_path
         self.model = model
         self.max_turns = max_turns
+        self.logger = get_agent_logger("memory_curator")
         self.system_prompt = self._load_system_prompt()
         self.knowledge_dir = Path(knowledge_dir)
 
         # Ensure knowledge directory exists
         self.knowledge_dir.mkdir(parents=True, exist_ok=True)
+        self.logger.info("MemoryCuratorAgent initialized", model=model, knowledge_dir=knowledge_dir)
 
         # Patterns that indicate important decisions
         self.decision_patterns = [
@@ -156,25 +161,39 @@ class MemoryCuratorAgent:
         Returns:
             ExtractionResult with all knowledge entries and metadata
         """
+        self.logger.info(
+            "Knowledge curation started",
+            task_preview=task_description[:100],
+            session_id=session_id,
+            tier_level=execution_context.get("tier_level"),
+            agents_involved=execution_context.get("agents_used", []),
+        )
+        emit_agent_started("memory_curator", phase="curation")
+
         # Step 1: Extract key decisions
         key_decisions = self._extract_key_decisions(
             task_description, agent_outputs, final_output
         )
 
+        self.logger.debug("Key decisions extracted", count=len(key_decisions))
+
         # Step 2: Identify patterns
         patterns = self._identify_patterns(
             agent_outputs, final_output
         )
+        self.logger.debug("Patterns identified", count=len(patterns))
 
         # Step 3: Capture domain insights
         domain_insights = self._capture_domain_insights(
             task_description, agent_outputs
         )
+        self.logger.debug("Domain insights captured", count=len(domain_insights))
 
         # Step 4: Document lessons learned
         lessons_learned = self._document_lessons(
             execution_context, agent_outputs
         )
+        self.logger.debug("Lessons documented", count=len(lessons_learned))
 
         # Step 5: Create knowledge entries
         entries = self._create_knowledge_entries(
@@ -192,6 +211,17 @@ class MemoryCuratorAgent:
             topic_file = self._write_knowledge_file(entry)
             if topic_file:
                 topics_created.append(topic_file)
+                self.logger.debug("Knowledge file written", filename=topic_file, topic=entry.topic)
+            else:
+                self.logger.warning("Failed to write knowledge file", topic=entry.topic)
+
+        self.logger.info(
+            "Knowledge curation completed",
+            entries_created=len(entries),
+            topics_created=topics_created,
+            total_extractions=sum(len(e.key_decisions) + len(e.patterns) + len(e.domain_insights) for e in entries),
+        )
+        emit_agent_completed("memory_curator", output_summary=f"Created {len(entries)} knowledge entries")
 
         # Step 7: Build metadata
         extraction_metadata = {
@@ -908,8 +938,8 @@ class MemoryCuratorAgent:
             return filename
 
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning("Failed to write knowledge file: %s", e)
+            self.logger.error("Failed to write knowledge file", error=str(e), topic=entry.topic)
+            emit_error("memory_curator", error=str(e), context="write_knowledge_file")
             return None
 
     # ========================================================================
@@ -931,6 +961,8 @@ class MemoryCuratorAgent:
         Returns:
             List of matching knowledge entries with metadata
         """
+        self.logger.info("Knowledge retrieval started", query_preview=query[:100], limit=limit)
+
         results = []
 
         # Simple keyword matching (could be enhanced with embeddings)
@@ -963,7 +995,9 @@ class MemoryCuratorAgent:
 
         # Sort by score and limit
         results.sort(key=lambda x: x["score"], reverse=True)
-        return results[:limit]
+        filtered = results[:limit]
+        self.logger.info("Knowledge retrieval completed", total_matches=len(results), returned=len(filtered))
+        return filtered
 
     def _parse_knowledge_file(self, content: str) -> tuple[Dict[str, Any], str]:
         """Parse YAML frontmatter and body from knowledge file."""
@@ -985,8 +1019,7 @@ class MemoryCuratorAgent:
             try:
                 frontmatter = yaml.safe_load(frontmatter_text) or {}
             except yaml.YAMLError as e:
-                import logging
-                logging.getLogger(__name__).warning("Failed to parse YAML frontmatter: %s", e)
+                self.logger.warning("Failed to parse YAML frontmatter", error=str(e))
 
         return frontmatter, body
 

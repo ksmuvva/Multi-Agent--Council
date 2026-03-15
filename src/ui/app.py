@@ -18,11 +18,15 @@ from streamlit_option_menu import option_menu
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from src.utils.logging import configure_logging, get_logger
 from src.utils.events import (
     EventType,
+    get_event_emitter,
     get_event_streamer,
     format_sse_event,
 )
+
+_app_logger = get_logger("streamlit_app")
 
 
 # =============================================================================
@@ -537,11 +541,21 @@ def main() -> None:
     </style>
     """, unsafe_allow_html=True)
 
+    # Configure structured logging for Streamlit
+    configure_logging(level="INFO", json_output=False, enable_filtering=True)
+
     # Initialize session state
     init_session_state()
 
     # Setup event streaming
     setup_event_streaming()
+
+    # Setup agent panel event subscriptions for real-time updates
+    from src.ui.components.agent_panel import setup_agent_event_subscriptions
+    setup_agent_event_subscriptions(session_id=st.session_state.current_session_id)
+
+    _app_logger.info("streamlit_app.initialized",
+                     session_id=st.session_state.current_session_id)
 
     # Render sidebar and get selected page
     selected_page = render_sidebar()

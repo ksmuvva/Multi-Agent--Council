@@ -9,6 +9,10 @@ from enum import Enum
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
+from src.utils.logging import get_logger
+
+_logger = get_logger("verdict")
+
 
 class Verdict(str, Enum):
     """Pass/fail verdict from agents."""
@@ -121,7 +125,7 @@ def evaluate_verdict_matrix(
     elif action == MatrixAction.QUALITY_ARBITER:
         reason_parts.append("Revision limit exceeded - invoking Quality Arbiter")
 
-    return MatrixOutcome(
+    outcome = MatrixOutcome(
         verifier_verdict=verifier_verdict,
         critic_verdict=critic_verdict,
         action=action,
@@ -130,6 +134,14 @@ def evaluate_verdict_matrix(
         can_retry=can_retry,
         max_revisions=max_revisions
     )
+    _logger.info("verdict.matrix_evaluated",
+                 verifier=verifier_verdict.value,
+                 critic=critic_verdict.value,
+                 action=action.value,
+                 revision_cycle=revision_cycle,
+                 can_retry=can_retry,
+                 tier=tier_level)
+    return outcome
 
 
 def get_phase_for_action(action: MatrixAction) -> str:

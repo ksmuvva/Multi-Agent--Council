@@ -21,6 +21,8 @@ from src.schemas.critic import (
     RedTeamArgument,
     SeverityLevel,
 )
+from src.utils.logging import get_agent_logger, AgentLogContext
+from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
 
 
 @dataclass
@@ -64,6 +66,7 @@ class CriticAgent:
         self.model = model
         self.max_turns = max_turns
         self.system_prompt = self._load_system_prompt()
+        self.logger = get_agent_logger("critic")
 
         # Logic fallacy patterns
         self.fallacy_patterns = {
@@ -95,61 +98,134 @@ class CriticAgent:
         Returns:
             CritiqueReport with all attacks and findings
         """
-        # Analyze the argument structure
-        argument_analysis = self._analyze_argument_structure(solution)
-
-        # Execute five attack vectors
-        logic_attack = self._logic_attack(solution, argument_analysis)
-        completeness_attack = self._completeness_attack(solution, original_request)
-        quality_attack = self._quality_attack(solution, argument_analysis)
-        contradiction_scan = self._contradiction_scan(solution)
-        red_team_argument = self._red_team_argumentation(solution, original_request)
-
-        # Combine all attacks
-        attacks = (
-            self._logic_attack_to_list(logic_attack) +
-            self._completeness_attack_to_list(completeness_attack) +
-            self._quality_attack_to_list(quality_attack) +
-            self._contradiction_to_list(contradiction_scan) +
-            self._red_team_to_list(red_team_argument)
+        self.logger.info(
+            "critique_started",
+            solution_length=len(solution),
+            request_length=len(original_request),
+            has_domain_attacks=domain_attacks is not None,
+            has_sme_inputs=sme_inputs is not None,
         )
+        emit_agent_started("critic", phase="critique")
 
-        # Add domain-specific attacks if provided
-        if domain_attacks:
-            domain_attacks_list = self._domain_attacks_to_list(
-                domain_attacks, sme_inputs
+        try:
+            # Analyze the argument structure
+            argument_analysis = self._analyze_argument_structure(solution)
+
+            # Execute five attack vectors
+            logic_attack = self._logic_attack(solution, argument_analysis)
+            self.logger.debug(
+                "logic_attack_complete",
+                invalid_arguments=len(logic_attack.invalid_arguments),
+                fallacies=len(logic_attack.fallacies_identified),
             )
-            attacks.extend(domain_attacks_list)
 
-        # Determine overall assessment
-        overall_assessment = self._generate_overall_assessment(
-            attacks, solution, argument_analysis
-        )
+            completeness_attack = self._completeness_attack(solution, original_request)
+            self.logger.debug(
+                "completeness_attack_complete",
+                covered=len(completeness_attack.covered),
+                missing=len(completeness_attack.missing),
+            )
 
-        # Identify critical issues
-        critical_issues = self._identify_critical_issues(attacks)
+            quality_attack = self._quality_attack(solution, argument_analysis)
+            self.logger.debug(
+                "quality_attack_complete",
+                strengths=len(quality_attack.strengths),
+                weaknesses=len(quality_attack.weaknesses),
+            )
 
-        # Generate recommended revisions
-        recommended_revisions = self._generate_revisions(attacks, critical_issues)
+            contradiction_scan = self._contradiction_scan(solution)
+            self.logger.debug(
+                "contradiction_scan_complete",
+                internal=len(contradiction_scan.internal_contradictions),
+                external=len(contradiction_scan.external_contradictions),
+            )
 
-        # Determine if the solution passes critique
-        would_approve = self._would_approve_solution(
-            attacks, critical_issues
-        )
+            red_team_argument = self._red_team_argumentation(solution, original_request)
+            self.logger.debug(
+                "red_team_complete",
+                attack_surfaces=len(red_team_argument.attack_surface),
+                failure_modes=len(red_team_argument.failure_modes),
+            )
 
-        return CritiqueReport(
-            solution_summary=solution[:100] + "..." if len(solution) > 100 else solution,
-            attacks=attacks,
-            logic_attack=logic_attack,
-            completeness_attack=completeness_attack,
-            quality_attack=quality_attack,
-            contradiction_scan=contradiction_scan,
-            red_team_argumentation=red_team_argument,
-            overall_assessment=overall_assessment,
-            critical_issues=critical_issues,
-            recommended_revisions=recommended_revisions,
-            would_approve=would_approve,
-        )
+            # Combine all attacks
+            attacks = (
+                self._logic_attack_to_list(logic_attack) +
+                self._completeness_attack_to_list(completeness_attack) +
+                self._quality_attack_to_list(quality_attack) +
+                self._contradiction_to_list(contradiction_scan) +
+                self._red_team_to_list(red_team_argument)
+            )
+
+            # Add domain-specific attacks if provided
+            if domain_attacks:
+                domain_attacks_list = self._domain_attacks_to_list(
+                    domain_attacks, sme_inputs
+                )
+                attacks.extend(domain_attacks_list)
+
+            # Determine overall assessment
+            overall_assessment = self._generate_overall_assessment(
+                attacks, solution, argument_analysis
+            )
+
+            # Identify critical issues
+            critical_issues = self._identify_critical_issues(attacks)
+
+            # Generate recommended revisions
+            recommended_revisions = self._generate_revisions(attacks, critical_issues)
+
+            # Determine if the solution passes critique
+            would_approve = self._would_approve_solution(
+                attacks, critical_issues
+            )
+
+            # Determine severity counts for logging
+            severity_counts = {}
+            for attack in attacks:
+                sev = attack.severity.value if hasattr(attack.severity, 'value') else str(attack.severity)
+                severity_counts[sev] = severity_counts.get(sev, 0) + 1
+
+            self.logger.info(
+                "severity_assessment_complete",
+                severity_breakdown=severity_counts,
+                total_findings=len(attacks),
+            )
+
+            report = CritiqueReport(
+                solution_summary=solution[:100] + "..." if len(solution) > 100 else solution,
+                attacks=attacks,
+                logic_attack=logic_attack,
+                completeness_attack=completeness_attack,
+                quality_attack=quality_attack,
+                contradiction_scan=contradiction_scan,
+                red_team_argumentation=red_team_argument,
+                overall_assessment=overall_assessment,
+                critical_issues=critical_issues,
+                recommended_revisions=recommended_revisions,
+                would_approve=would_approve,
+            )
+
+            self.logger.info(
+                "critique_completed",
+                total_attacks=len(attacks),
+                severity_breakdown=severity_counts,
+                critical_issues=len(critical_issues),
+                would_approve=would_approve,
+                overall_assessment=overall_assessment,
+            )
+            emit_agent_completed("critic", output_summary=overall_assessment)
+
+            return report
+
+        except Exception as e:
+            self.logger.error(
+                "critique_failed",
+                error_type=type(e).__name__,
+                error_message=str(e),
+                exc_info=True,
+            )
+            emit_error("critic", error_message=str(e), error_type=type(e).__name__)
+            raise
 
     # ========================================================================
     # Attack Vectors

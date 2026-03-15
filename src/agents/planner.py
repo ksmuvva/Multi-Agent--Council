@@ -16,6 +16,8 @@ from src.schemas.planner import (
     StepStatus,
 )
 from src.schemas.analyst import TaskIntelligenceReport
+from src.utils.logging import get_agent_logger, AgentLogContext
+from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
 
 
 class PlannerAgent:
@@ -48,6 +50,7 @@ class PlannerAgent:
         self.model = model
         self.max_turns = max_turns
         self.system_prompt = self._load_system_prompt()
+        self.logger = get_agent_logger("planner")
 
         # Agent capabilities mapping
         self.agent_capabilities = {
@@ -80,41 +83,74 @@ class PlannerAgent:
         Returns:
             ExecutionPlan with sequenced steps and agent assignments
         """
-        # Generate steps based on analyst report
-        steps = self._generate_steps(analyst_report, sme_selections, context)
-
-        # Identify parallel groups
-        parallel_groups = self._identify_parallel_groups(steps)
-
-        # Determine critical path
-        critical_path = self._calculate_critical_path(steps)
-
-        # Estimate duration
-        estimated_duration = self._estimate_duration(steps, parallel_groups)
-
-        # Determine required SMEs
-        required_smes = sme_selections or self._determine_required_smes(analyst_report)
-
-        # Identify risk factors
-        risk_factors = self._identify_risks(analyst_report, steps)
-
-        # Create contingency plans
-        contingency_plans = self._create_contingency_plans(risk_factors)
-
-        # Build summary
-        task_summary = self._build_summary(analyst_report, len(steps))
-
-        return ExecutionPlan(
-            task_summary=task_summary,
-            total_steps=len(steps),
-            steps=steps,
-            parallel_groups=parallel_groups,
-            critical_path=critical_path,
-            estimated_duration_minutes=estimated_duration,
-            required_sme_personas=required_smes,
-            risk_factors=risk_factors,
-            contingency_plans=contingency_plans,
+        self.logger.info(
+            "planner_started",
+            task_description_length=len(analyst_report.literal_request),
         )
+        emit_agent_started("planner", phase="planning")
+
+        try:
+            # Generate steps based on analyst report
+            steps = self._generate_steps(analyst_report, sme_selections, context)
+
+            # Determine approach based on analyst report
+            approach = analyst_report.recommended_approach
+            self.logger.debug("approach_selected", approach=approach)
+
+            # Log step count after generation
+            self.logger.debug("steps_generated", step_count=len(steps))
+
+            # Identify parallel groups
+            parallel_groups = self._identify_parallel_groups(steps)
+
+            # Determine critical path
+            critical_path = self._calculate_critical_path(steps)
+
+            # Estimate duration
+            estimated_duration = self._estimate_duration(steps, parallel_groups)
+
+            # Determine required SMEs
+            required_smes = sme_selections or self._determine_required_smes(analyst_report)
+
+            # Identify risk factors
+            risk_factors = self._identify_risks(analyst_report, steps)
+
+            # Create contingency plans
+            contingency_plans = self._create_contingency_plans(risk_factors)
+
+            # Build summary
+            task_summary = self._build_summary(analyst_report, len(steps))
+
+            plan = ExecutionPlan(
+                task_summary=task_summary,
+                total_steps=len(steps),
+                steps=steps,
+                parallel_groups=parallel_groups,
+                critical_path=critical_path,
+                estimated_duration_minutes=estimated_duration,
+                required_sme_personas=required_smes,
+                risk_factors=risk_factors,
+                contingency_plans=contingency_plans,
+            )
+
+            self.logger.info(
+                "planner_completed",
+                total_steps=len(steps),
+                parallel_groups=len(parallel_groups),
+                estimated_duration_minutes=estimated_duration,
+                risk_count=len(risk_factors),
+            )
+            emit_agent_completed(
+                "planner",
+                output_summary=f"steps={len(steps)} parallel_groups={len(parallel_groups)} duration={estimated_duration}min",
+            )
+
+            return plan
+
+        except Exception as e:
+            self.logger.error("planner_failed", error=str(e), exc_info=True)
+            emit_error("planner", error_message=str(e), error_type=type(e).__name__)
+            raise
 
     # ========================================================================
     # Plan Generation Methods
