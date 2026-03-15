@@ -16,6 +16,8 @@ from src.schemas.analyst import (
     SeverityLevel,
     ModalityType,
 )
+from src.utils.logging import get_agent_logger, AgentLogContext
+from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
 
 
 class AnalystAgent:
@@ -48,6 +50,7 @@ class AnalystAgent:
         self.model = model
         self.max_turns = max_turns
         self.system_prompt = self._load_system_prompt()
+        self.logger = get_agent_logger("analyst")
 
         # Modality detection patterns
         self.modality_patterns = {
@@ -87,50 +90,86 @@ class AnalystAgent:
         Returns:
             TaskIntelligenceReport with complete analysis
         """
-        # Enhance request with file info if provided
-        enhanced_request = self._prepare_request(user_request, file_attachments)
-
-        # Detect modality
-        modality = self._detect_modality(enhanced_request, file_attachments)
-
-        # Extract literal and inferred intent
-        literal_request = self._extract_literal_request(user_request)
-        inferred_intent = self._infer_intent(user_request, context)
-
-        # Decompose into sub-tasks
-        sub_tasks = self._decompose_tasks(user_request, inferred_intent, modality)
-
-        # Identify missing information
-        missing_info = self._identify_missing_info(user_request, sub_tasks, modality)
-
-        # Generate assumptions
-        assumptions = self._generate_assumptions(user_request, missing_info)
-
-        # Determine recommended approach
-        recommended_approach = self._recommend_approach(
-            user_request, sub_tasks, modality, missing_info
+        self.logger.info(
+            "analyst_started",
+            request_length=len(user_request),
+            has_context=context is not None,
+            has_attachments=file_attachments is not None and len(file_attachments) > 0,
         )
+        emit_agent_started("analyst", phase="analysis")
 
-        # Determine tier suggestion
-        suggested_tier = self._suggest_tier(
-            user_request, sub_tasks, missing_info
-        )
+        try:
+            # Enhance request with file info if provided
+            enhanced_request = self._prepare_request(user_request, file_attachments)
 
-        # Check for escalation needs
-        escalation_needed = self._check_escalation(user_request, sub_tasks)
+            # Detect modality
+            modality = self._detect_modality(enhanced_request, file_attachments)
+            self.logger.debug("modality_detected", modality=modality.value)
 
-        return TaskIntelligenceReport(
-            literal_request=literal_request,
-            inferred_intent=inferred_intent,
-            sub_tasks=sub_tasks,
-            missing_info=missing_info,
-            assumptions=assumptions,
-            modality=modality,
-            recommended_approach=recommended_approach,
-            suggested_tier=suggested_tier,
-            escalation_needed=escalation_needed,
-            confidence=self._calculate_confidence(sub_tasks, missing_info),
-        )
+            # Extract literal and inferred intent
+            literal_request = self._extract_literal_request(user_request)
+            inferred_intent = self._infer_intent(user_request, context)
+
+            # Decompose into sub-tasks
+            sub_tasks = self._decompose_tasks(user_request, inferred_intent, modality)
+            self.logger.debug("subtasks_decomposed", subtask_count=len(sub_tasks))
+
+            # Identify missing information
+            missing_info = self._identify_missing_info(user_request, sub_tasks, modality)
+            severities = [m.severity.value for m in missing_info]
+            self.logger.debug(
+                "missing_info_identified",
+                missing_info_count=len(missing_info),
+                severities=severities,
+            )
+
+            # Generate assumptions
+            assumptions = self._generate_assumptions(user_request, missing_info)
+
+            # Determine recommended approach
+            recommended_approach = self._recommend_approach(
+                user_request, sub_tasks, modality, missing_info
+            )
+
+            # Determine tier suggestion
+            suggested_tier = self._suggest_tier(
+                user_request, sub_tasks, missing_info
+            )
+
+            # Check for escalation needs
+            escalation_needed = self._check_escalation(user_request, sub_tasks)
+
+            report = TaskIntelligenceReport(
+                literal_request=literal_request,
+                inferred_intent=inferred_intent,
+                sub_tasks=sub_tasks,
+                missing_info=missing_info,
+                assumptions=assumptions,
+                modality=modality,
+                recommended_approach=recommended_approach,
+                suggested_tier=suggested_tier,
+                escalation_needed=escalation_needed,
+                confidence=self._calculate_confidence(sub_tasks, missing_info),
+            )
+
+            self.logger.info(
+                "analyst_completed",
+                subtask_count=len(sub_tasks),
+                modality=modality.value,
+                missing_info_count=len(missing_info),
+                suggested_tier=suggested_tier,
+            )
+            emit_agent_completed(
+                "analyst",
+                output_summary=f"subtasks={len(sub_tasks)} modality={modality.value} missing={len(missing_info)}",
+            )
+
+            return report
+
+        except Exception as e:
+            self.logger.error("analyst_failed", error=str(e), exc_info=True)
+            emit_error("analyst", error_message=str(e), error_type=type(e).__name__)
+            raise
 
     # ========================================================================
     # Analysis Methods

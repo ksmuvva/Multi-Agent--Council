@@ -9,6 +9,10 @@ from enum import IntEnum
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
+from src.utils.logging import get_logger
+
+_logger = get_logger("complexity")
+
 
 class TierLevel(IntEnum):
     """
@@ -278,7 +282,7 @@ def classify_complexity(
     if tier_score == 2:
         escalation_risk += 0.15
 
-    return TierClassification(
+    classification = TierClassification(
         tier=tier_enum,
         reasoning=". ".join(reasoning_parts),
         confidence=0.8 if tier_score >= 3 else 0.7,
@@ -289,6 +293,15 @@ def classify_complexity(
         escalation_risk=min(1.0, escalation_risk),
         keywords_found=keywords_found
     )
+    _logger.info("complexity.classified",
+                 tier=tier_enum,
+                 confidence=classification.confidence,
+                 estimated_agents=config["agent_count"],
+                 requires_council=config["requires_council"],
+                 requires_smes=config["requires_smes"],
+                 keywords_found=keywords_found[:5],
+                 reasoning=". ".join(reasoning_parts))
+    return classification
 
 
 def should_escalate(

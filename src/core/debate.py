@@ -10,6 +10,9 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
 
+from src.utils.logging import get_logger
+from src.utils.events import emit_system_message, emit_task_progress
+
 
 class ConsensusLevel(str, Enum):
     """Level of consensus achieved."""
@@ -92,16 +95,19 @@ class DebateProtocol:
         self.rounds: List[DebateRound] = []
         self.participants: List[str] = []
         self.sme_participants: List[str] = []
+        self.logger = get_logger("debate")
 
     def add_participant(self, agent_name: str) -> None:
         """Add an agent to the debate."""
         if agent_name not in self.participants:
             self.participants.append(agent_name)
+            self.logger.debug("debate.participant_added", agent=agent_name)
 
     def add_sme_participant(self, sme_persona: str) -> None:
         """Add an SME persona to the debate."""
         if sme_persona not in self.sme_participants:
             self.sme_participants.append(sme_persona)
+            self.logger.debug("debate.sme_participant_added", sme=sme_persona)
 
     def calculate_consensus(
         self,
@@ -220,6 +226,12 @@ class DebateProtocol:
         Returns:
             DebateRound with results
         """
+        round_num = len(self.rounds) + 1
+        self.logger.info("debate.round_started",
+                         round=round_num,
+                         participants=self.participants,
+                         sme_count=len(sme_arguments))
+
         # Calculate agreement scores by analyzing actual content from each agent
         executor_agreement = self._score_executor_agreement(
             executor_position, critic_challenges, verifier_checks
@@ -235,6 +247,13 @@ class DebateProtocol:
             for sme, args in sme_arguments.items()
         }
 
+        self.logger.info("debate.agreement_scores",
+                         round=round_num,
+                         executor=executor_agreement,
+                         critic=critic_agreement,
+                         verifier=verifier_agreement,
+                         sme_scores=sme_agreements)
+
         # Calculate consensus
         consensus = self.calculate_consensus(
             executor_agreement,
@@ -243,7 +262,16 @@ class DebateProtocol:
             sme_agreements
         )
 
-        round_num = len(self.rounds) + 1
+        consensus_level = self.determine_consensus_level(consensus)
+        self.logger.info("debate.round_completed",
+                         round=round_num,
+                         consensus_score=consensus,
+                         consensus_level=consensus_level,
+                         critic_challenges_count=len(critic_challenges),
+                         verifier_checks_count=len(verifier_checks))
+        emit_system_message(
+            f"Debate round {round_num}: {consensus_level} consensus ({consensus:.0%})")
+
         debate_round = DebateRound(
             round_number=round_num,
             executor_position=executor_position,
@@ -429,7 +457,7 @@ class DebateProtocol:
                 arbiter_invoked = False
             alternative_presented = True
 
-        return DebateOutcome(
+        outcome = DebateOutcome(
             consensus_level=consensus,
             consensus_score=latest_round.consensus_score,
             rounds_completed=len(self.rounds),
@@ -438,6 +466,13 @@ class DebateProtocol:
             arbiter_invoked=arbiter_invoked,
             summary=self._generate_summary()
         )
+        self.logger.info("debate.outcome",
+                         consensus_level=consensus,
+                         consensus_score=latest_round.consensus_score,
+                         rounds_completed=len(self.rounds),
+                         arbiter_invoked=arbiter_invoked,
+                         alternative_presented=alternative_presented)
+        return outcome
 
     def _generate_summary(self) -> str:
         """Generate a summary of the debate."""

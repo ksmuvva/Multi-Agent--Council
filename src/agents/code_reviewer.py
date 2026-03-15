@@ -20,6 +20,8 @@ from src.schemas.code_reviewer import (
     SeverityLevel,
     ReviewCategory,
 )
+from src.utils.logging import get_agent_logger, AgentLogContext
+from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
 
 
 @dataclass
@@ -64,6 +66,7 @@ class CodeReviewerAgent:
         self.model = model
         self.max_turns = max_turns
         self.system_prompt = self._load_system_prompt()
+        self.logger = get_agent_logger("code_reviewer")
 
         # Security patterns to detect
         self.security_patterns = {
@@ -130,50 +133,112 @@ class CodeReviewerAgent:
         Returns:
             CodeReviewReport with all findings
         """
-        # Analyze code context
-        code_context = self._analyze_code_context(code, file_path, language)
-
-        # Run five dimensions of review
-        security_scan = self._security_scan(code, code_context)
-        performance_analysis = self._performance_analysis(code, code_context)
-        style_compliance = self._style_compliance(code, code_context)
-
-        # Error handling and test coverage
-        error_handling_complete = self._check_error_handling(code, code_context)
-        test_coverage_assessment = self._assess_test_coverage(code, code_context)
-
-        # Aggregate all findings
-        findings = (
-            self._security_findings_to_list(security_scan, code_context) +
-            self._performance_findings_to_list(performance_analysis, code_context) +
-            self._style_findings_to_list(style_compliance, code_context)
+        self.logger.info(
+            "review_started",
+            code_length=len(code),
+            language=language,
+            file_path=file_path,
         )
+        emit_agent_started("code_reviewer", phase="review")
 
-        # Determine overall assessment
-        overall_assessment = self._generate_overall_assessment(
-            findings, code_context
-        )
+        try:
+            # Analyze code context
+            code_context = self._analyze_code_context(code, file_path, language)
 
-        # Determine pass/fail
-        has_critical = any(
-            f.severity == SeverityLevel.CRITICAL for f in findings
-        )
-        pass_fail = not has_critical
+            # Run five dimensions of review
+            security_scan = self._security_scan(code, code_context)
+            security_findings = self._security_findings_to_list(security_scan, code_context)
+            self.logger.debug(
+                "security_scan_complete",
+                vulnerabilities_found=security_scan.vulnerabilities_found,
+                sql_injection_risk=security_scan.sql_injection_risk,
+                xss_risk=security_scan.xss_risk,
+                issues_found=len(security_findings),
+            )
 
-        # Generate recommended actions
-        recommended_actions = self._generate_recommendations(findings)
+            performance_analysis = self._performance_analysis(code, code_context)
+            performance_findings = self._performance_findings_to_list(performance_analysis, code_context)
+            self.logger.debug(
+                "performance_analysis_complete",
+                n_plus_one_queries=len(performance_analysis.n_plus_one_queries),
+                optimization_opportunities=len(performance_analysis.optimization_opportunities),
+                issues_found=len(performance_findings),
+            )
 
-        return CodeReviewReport(
-            overall_assessment=overall_assessment,
-            pass_fail=pass_fail,
-            findings=findings,
-            security_scan=security_scan,
-            performance_analysis=performance_analysis,
-            style_compliance=style_compliance,
-            error_handling_complete=error_handling_complete,
-            test_coverage_assessment=test_coverage_assessment,
-            recommended_actions=recommended_actions,
-        )
+            style_compliance = self._style_compliance(code, code_context)
+            style_findings = self._style_findings_to_list(style_compliance, code_context)
+            self.logger.debug(
+                "style_compliance_complete",
+                pep8_compliant=style_compliance.pep8_compliant,
+                naming_issues=len(style_compliance.naming_conventions),
+                issues_found=len(style_findings),
+            )
+
+            # Error handling and test coverage
+            error_handling_complete = self._check_error_handling(code, code_context)
+            test_coverage_assessment = self._assess_test_coverage(code, code_context)
+
+            # Aggregate all findings
+            findings = security_findings + performance_findings + style_findings
+
+            # Determine overall assessment
+            overall_assessment = self._generate_overall_assessment(
+                findings, code_context
+            )
+
+            # Determine pass/fail
+            has_critical = any(
+                f.severity == SeverityLevel.CRITICAL for f in findings
+            )
+            pass_fail = not has_critical
+
+            # Generate recommended actions
+            recommended_actions = self._generate_recommendations(findings)
+
+            # Log severity breakdown
+            severity_counts = {}
+            for f in findings:
+                sev = f.severity.value if hasattr(f.severity, 'value') else str(f.severity)
+                severity_counts[sev] = severity_counts.get(sev, 0) + 1
+
+            self.logger.info(
+                "severity_assessment_complete",
+                severity_breakdown=severity_counts,
+                total_findings=len(findings),
+            )
+
+            report = CodeReviewReport(
+                overall_assessment=overall_assessment,
+                pass_fail=pass_fail,
+                findings=findings,
+                security_scan=security_scan,
+                performance_analysis=performance_analysis,
+                style_compliance=style_compliance,
+                error_handling_complete=error_handling_complete,
+                test_coverage_assessment=test_coverage_assessment,
+                recommended_actions=recommended_actions,
+            )
+
+            self.logger.info(
+                "review_completed",
+                pass_fail=pass_fail,
+                total_findings=len(findings),
+                severity_breakdown=severity_counts,
+                overall_assessment=overall_assessment,
+            )
+            emit_agent_completed("code_reviewer", output_summary=overall_assessment)
+
+            return report
+
+        except Exception as e:
+            self.logger.error(
+                "review_failed",
+                error_type=type(e).__name__,
+                error_message=str(e),
+                exc_info=True,
+            )
+            emit_error("code_reviewer", error_message=str(e), error_type=type(e).__name__)
+            raise
 
     # ========================================================================
     # Security Scan

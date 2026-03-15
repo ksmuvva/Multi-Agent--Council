@@ -64,6 +64,25 @@ from src.config import (
     get_api_key,
     get_provider,
 )
+from src.utils.logging import (
+    get_agent_logger,
+    AgentLogContext,
+    log_agent_start,
+    log_agent_complete,
+    log_agent_error,
+    log_sme_spawn,
+    log_verdict,
+)
+from src.utils.events import (
+    emit_agent_started,
+    emit_agent_completed,
+    emit_task_started,
+    emit_task_progress,
+    emit_task_completed,
+    emit_error,
+    emit_system_message,
+    emit_quality_gate,
+)
 
 
 @dataclass
@@ -183,6 +202,9 @@ class OrchestratorAgent:
         # Register MCP server for custom tools
         self.mcp_server = create_sdk_mcp_server()
 
+        # Structured logger
+        self.logger = get_agent_logger("orchestrator")
+
     # ========================================================================
     # Main Entry Point
     # ========================================================================
@@ -215,6 +237,14 @@ class OrchestratorAgent:
             resume_context=resume_context,
         )
 
+        with AgentLogContext("orchestrator", phase="process_request"):
+            self.logger.info("orchestrator.started",
+                             session_id=session.session_id,
+                             prompt_length=len(user_prompt),
+                             has_file=file_path is not None,
+                             tier_override=tier_override)
+            emit_task_started("orchestrator", user_prompt[:100], tier_override or 0, session.session_id)
+
         try:
             # Load multimodal content if provided
             input_content = self._load_input_content(user_prompt, file_path)
@@ -231,25 +261,39 @@ class OrchestratorAgent:
 
             session.current_tier = session.tier_classification.tier
 
-            if self.verbose:
-                self._log(f"Tier {session.current_tier}: {session.tier_classification.reasoning}")
+            self.logger.info("orchestrator.tier_classified",
+                             tier=session.current_tier,
+                             reasoning=session.tier_classification.reasoning)
+            emit_task_progress("orchestrator", 0.1,
+                               f"Tier {session.current_tier} classified",
+                               session.session_id)
 
             # Step 2: Check budget
             if session.is_budget_exceeded():
+                self.logger.warning("orchestrator.budget_exceeded_before_start",
+                                    budget=session.max_budget_usd,
+                                    spent=session.total_cost_usd)
                 return self._budget_exceeded_response(session)
 
             # Step 3: Council consultation for Tier 3-4
             if session.current_tier >= TierLevel.DEEP:
+                self.logger.info("orchestrator.council_required",
+                                 tier=session.current_tier)
                 self._consult_council(session, input_content)
 
                 # Check budget again after Council
                 if session.is_budget_exceeded():
+                    self.logger.warning("orchestrator.budget_exceeded_after_council")
                     return self._budget_exceeded_response(session)
 
             # Step 4: Create pipeline
             pipeline = PipelineBuilder.for_tier(session.current_tier)
             pipeline.max_revisions = session.max_revisions
             pipeline.max_debate_rounds = session.max_debate_rounds
+            self.logger.info("orchestrator.pipeline_created",
+                             tier=session.current_tier,
+                             max_revisions=session.max_revisions,
+                             max_debate_rounds=session.max_debate_rounds)
 
             # Step 5: Execute pipeline
             execution_context = create_execution_context(
@@ -262,6 +306,9 @@ class OrchestratorAgent:
                 },
             )
 
+            emit_task_progress("orchestrator", 0.2,
+                               "Pipeline execution starting",
+                               session.session_id)
             final_state = self._execute_pipeline(
                 pipeline=pipeline,
                 session=session,
@@ -269,16 +316,35 @@ class OrchestratorAgent:
             )
 
             # Step 6: Generate final response
+            self.logger.info("orchestrator.generating_final_response",
+                             session_id=session.session_id)
+            emit_task_progress("orchestrator", 0.9,
+                               "Generating final response",
+                               session.session_id)
             response = self._generate_final_response(
                 session=session,
                 pipeline_state=final_state,
             )
 
+            self.logger.info("orchestrator.completed",
+                             session_id=session.session_id,
+                             duration_seconds=session.duration_seconds,
+                             total_cost_usd=session.total_cost_usd,
+                             agents_count=len(session.agent_executions))
+            emit_task_completed("orchestrator",
+                                f"Completed with {len(session.agent_executions)} agents",
+                                session.duration_seconds,
+                                session.session_id)
+
             return response
 
         except Exception as e:
-            if self.verbose:
-                self._log(f"Error processing request: {e}")
+            self.logger.error("orchestrator.failed",
+                              error=str(e),
+                              error_type=type(e).__name__,
+                              session_id=session.session_id,
+                              exc_info=True)
+            emit_error("orchestrator", str(e), session_id=session.session_id)
             return self._error_response(session, str(e))
 
         finally:
@@ -449,16 +515,14 @@ class OrchestratorAgent:
             # Check if compaction is needed
             if self.enable_auto_compact:
                 compaction_result = check_and_compact(persist_session)
-                if compaction_result and self.verbose:
-                    self._log(
-                        f"Session compacted: {compaction_result.original_count} → "
-                        f"{compaction_result.compacted_count} messages "
-                        f"({compaction_result.reduction_ratio*100:.1f}% reduction)"
-                    )
+                if compaction_result:
+                    self.logger.info("orchestrator.session_compacted",
+                                     original=compaction_result.original_count,
+                                     compacted=compaction_result.compacted_count,
+                                     reduction_pct=round(compaction_result.reduction_ratio * 100, 1))
 
         except Exception as e:
-            if self.verbose:
-                self._log(f"Error saving session: {e}")
+            self.logger.error("orchestrator.session_save_failed", error=str(e), exc_info=True)
 
     def load_session(self, session_id: str) -> Optional[SessionState]:
         """
@@ -495,8 +559,7 @@ class OrchestratorAgent:
             return session
 
         except Exception as e:
-            if self.verbose:
-                self._log(f"Error loading session: {e}")
+            self.logger.error("orchestrator.session_load_failed", error=str(e), exc_info=True)
             return None
 
     # ========================================================================
@@ -553,8 +616,10 @@ class OrchestratorAgent:
         """
         session.council_activated = True
 
-        if self.verbose:
-            self._log(f"Consulting Council for Tier {session.current_tier} task")
+        self.logger.info("orchestrator.council_consultation_started",
+                         tier=session.current_tier,
+                         session_id=session.session_id)
+        emit_agent_started("Domain Council Chair", "council_consultation", session.session_id)
 
         # Spawn Domain Council Chair
         chair_result = self._spawn_agent(
@@ -571,8 +636,12 @@ class OrchestratorAgent:
             smes = self._extract_sme_selection(chair_result["output"])
             session.active_smes = smes
 
-            if self.verbose:
-                self._log(f"Council selected SMEs: {smes}")
+            self.logger.info("orchestrator.council_sme_selection",
+                             selected_smes=smes,
+                             count=len(smes))
+            emit_agent_completed("Domain Council Chair",
+                                 f"Selected {len(smes)} SMEs: {', '.join(smes)}",
+                                 session.session_id)
 
         # On Tier 4, also spawn Quality Arbiter and Ethics Advisor
         if session.current_tier == TierLevel.ADVERSARIAL:
@@ -657,19 +726,28 @@ class OrchestratorAgent:
         """
         phases = pipeline._get_phases_for_tier()
         previous_outputs: Dict[str, Any] = {}
+        self.logger.info("orchestrator.pipeline_execution_started",
+                         phase_count=len(phases),
+                         tier=session.current_tier)
 
         for phase in phases:
             # Check budget before each phase
             if session.is_budget_exceeded():
-                if self.verbose:
-                    self._log("Budget exceeded - stopping pipeline")
+                self.logger.warning("orchestrator.budget_exceeded_stopping_pipeline",
+                                    spent=session.total_cost_usd,
+                                    budget=session.max_budget_usd)
                 break
 
             # Get agents for this phase
             agents = pipeline._get_agents_for_phase(phase)
 
-            if self.verbose:
-                self._log(f"Executing {phase.value} with agents: {agents}")
+            self.logger.info("orchestrator.phase_started",
+                             phase=phase.value,
+                             agents=agents,
+                             agent_count=len(agents))
+            emit_task_progress("orchestrator", 0.3,
+                               f"Executing {phase.value}",
+                               session.session_id)
 
             # Execute agents in this phase
             for agent_name in agents:
@@ -727,8 +805,9 @@ class OrchestratorAgent:
 
                 # Check budget after each agent
                 if session.is_budget_exceeded():
-                    if self.verbose:
-                        self._log("Budget exceeded mid-phase - returning partial result")
+                    self.logger.warning("orchestrator.budget_exceeded_mid_phase",
+                                        phase=phase.value,
+                                        agent=agent_name)
                     return pipeline.state
 
             # Handle verdict matrix for Phase 6 (Review)
@@ -737,16 +816,20 @@ class OrchestratorAgent:
                 if action == MatrixAction.EXECUTOR_REVISE:
                     if session.revision_cycle < session.max_revisions:
                         session.revision_cycle += 1
-                        if self.verbose:
-                            self._log(f"Revision cycle {session.revision_cycle}/{session.max_revisions}")
+                        self.logger.info("orchestrator.revision_cycle",
+                                         cycle=session.revision_cycle,
+                                         max_revisions=session.max_revisions)
+                        emit_task_progress("orchestrator", 0.6,
+                                           f"Revision cycle {session.revision_cycle}/{session.max_revisions}",
+                                           session.session_id)
                         # Re-execute Phase 5 (Executor) then loop back to review
                         self._re_execute_phase(
                             session, context, previous_outputs,
                             Phase.PHASE_5_SOLUTION_GENERATION,
                         )
                     else:
-                        if self.verbose:
-                            self._log("Max revisions reached - proceeding to final review")
+                        self.logger.info("orchestrator.max_revisions_reached",
+                                         max_revisions=session.max_revisions)
                 elif action == MatrixAction.QUALITY_ARBITER:
                     # Spawn Quality Arbiter for dispute resolution
                     self._spawn_quality_arbiter(session, context["user_prompt"])
@@ -854,6 +937,12 @@ class OrchestratorAgent:
         - setting_sources for skill auto-discovery
         - Retry logic (1x non-critical, 2x critical)
         """
+        self.logger.info("orchestrator.spawning_agent",
+                         agent=agent_name,
+                         model=model or "default",
+                         role=agent_role or "operational")
+        emit_agent_started(agent_name, "spawning", session.session_id)
+
         # Load system prompt
         system_prompt = self._load_system_prompt(system_prompt_template, agent_role)
 
@@ -894,13 +983,21 @@ class OrchestratorAgent:
         cost = result.get("cost_usd", 0.0)
         session.total_cost_usd += cost
 
+        self.logger.info("orchestrator.agent_completed",
+                         agent=agent_name,
+                         status=result.get("status", "unknown"),
+                         cost_usd=cost,
+                         tokens_used=result.get("tokens_used", 0))
+        emit_agent_completed(agent_name,
+                             f"Status: {result.get('status', 'unknown')}",
+                             session.session_id)
+
         # Budget warning
-        if session.should_warn_budget() and self.verbose:
-            self._log(
-                f"Budget warning: ${session.total_cost_usd:.4f} / "
-                f"${session.max_budget_usd:.2f} "
-                f"({session.budget_utilization*100:.0f}%)"
-            )
+        if session.should_warn_budget():
+            self.logger.warning("orchestrator.budget_warning",
+                                spent=session.total_cost_usd,
+                                budget=session.max_budget_usd,
+                                utilization_pct=round(session.budget_utilization * 100))
 
         # Check for escalation in output
         output = result.get("output", "")
@@ -981,6 +1078,16 @@ class OrchestratorAgent:
             tier_level=session.current_tier,
         )
 
+        self.logger.info("orchestrator.verdict_evaluated",
+                         verifier=verifier_verdict,
+                         critic=critic_verdict,
+                         action=outcome.action,
+                         revision_cycle=session.revision_cycle)
+        emit_quality_gate("orchestrator", "verdict_matrix",
+                          outcome.action == MatrixAction.ACCEPT,
+                          f"Action: {outcome.action}",
+                          session.session_id)
+
         return outcome.action
 
     def _parse_verdict(self, output: Any) -> "Verdict":
@@ -1017,6 +1124,12 @@ class OrchestratorAgent:
 
     def _conduct_debate(self, session: SessionState, context: Dict[str, Any]) -> None:
         """Conduct a debate session."""
+        self.logger.info("orchestrator.debate_started",
+                         max_rounds=session.max_debate_rounds,
+                         active_smes=session.active_smes)
+        emit_system_message(f"Debate started with max {session.max_debate_rounds} rounds",
+                            session_id=session.session_id)
+
         protocol = DebateProtocol(
             max_rounds=session.max_debate_rounds,
             consensus_threshold=0.8,
@@ -1117,20 +1230,31 @@ class OrchestratorAgent:
                 sme_arguments=sme_arguments,
             )
 
-            if self.verbose:
-                self._log(
-                    f"Debate round {round_idx + 1}: "
-                    f"consensus={debate_round.consensus_score:.2f}"
-                )
+            self.logger.info("orchestrator.debate_round_completed",
+                             round=round_idx + 1,
+                             consensus_score=debate_round.consensus_score,
+                             critic_challenges=len(critic_challenges),
+                             verifier_checks=len(verifier_checks),
+                             sme_contributions=len(sme_arguments))
+            emit_task_progress("orchestrator", 0.7,
+                               f"Debate round {round_idx + 1}: consensus={debate_round.consensus_score:.2f}",
+                               session.session_id)
 
             # Stop if consensus reached
             if not protocol.should_continue_debate(debate_round.consensus_score):
+                self.logger.info("orchestrator.debate_consensus_reached",
+                                 score=debate_round.consensus_score)
                 break
 
         outcome = protocol.get_outcome()
 
-        if self.verbose:
-            self._log(f"Debate outcome: {outcome.consensus_level}")
+        self.logger.info("orchestrator.debate_completed",
+                         consensus_level=outcome.consensus_level,
+                         consensus_score=outcome.consensus_score,
+                         rounds_completed=outcome.rounds_completed,
+                         arbiter_invoked=outcome.arbiter_invoked)
+        emit_system_message(f"Debate concluded: {outcome.consensus_level} consensus",
+                            session_id=session.session_id)
 
     # ========================================================================
     # Escalation
@@ -1142,13 +1266,18 @@ class OrchestratorAgent:
         agent_result: Dict[str, Any]
     ) -> None:
         """Handle mid-execution escalation."""
-        if self.verbose:
-            self._log(f"Escalation requested by agent")
+        reason = agent_result.get("escalation_reason", "unknown")
+        self.logger.warning("orchestrator.escalation_requested",
+                            reason=reason,
+                            current_tier=session.current_tier)
+        emit_system_message(f"Escalation requested: {reason}",
+                            level="warning",
+                            session_id=session.session_id)
 
         session.escalation_history.append({
             "timestamp": time.time(),
             "tier": session.current_tier,
-            "reason": agent_result.get("escalation_reason"),
+            "reason": reason,
         })
 
         # Re-evaluate tier
@@ -1156,8 +1285,9 @@ class OrchestratorAgent:
 
         if new_tier != session.current_tier:
             session.current_tier = new_tier
-            if self.verbose:
-                self._log(f"Escalated to Tier {new_tier}")
+            self.logger.info("orchestrator.tier_escalated",
+                             old_tier=session.current_tier,
+                             new_tier=new_tier)
 
             # Activate Council if needed
             if new_tier >= TierLevel.DEEP and not session.council_activated:
@@ -1290,8 +1420,7 @@ class OrchestratorAgent:
                 path = Path(file_path)
 
                 if not path.exists():
-                    if self.verbose:
-                        self._log(f"File not found: {file_path}")
+                    self.logger.warning("orchestrator.file_not_found", file_path=file_path)
                     return content
 
                 # Read text-based files
@@ -1320,12 +1449,10 @@ class OrchestratorAgent:
                 else:
                     content += f"\n\n[Attached File: {path.name}]"
 
-                if self.verbose:
-                    self._log(f"Loaded input file: {file_path}")
+                self.logger.info("orchestrator.file_loaded", file_path=file_path)
 
             except Exception as e:
-                if self.verbose:
-                    self._log(f"Error loading file: {e}")
+                self.logger.error("orchestrator.file_load_error", error=str(e), file_path=file_path)
 
         return content
 
@@ -1382,10 +1509,10 @@ class OrchestratorAgent:
             },
         }
 
-    def _log(self, message: str) -> None:
-        """Log a message if verbose mode is enabled."""
-        if self.verbose:
-            print(f"[Orchestrator] {message}")
+    def _log(self, message: str, level: str = "info", **kwargs) -> None:
+        """Log a message using structured logging."""
+        log_fn = getattr(self.logger, level, self.logger.info)
+        log_fn(f"orchestrator.{message}" if "." not in message else message, **kwargs)
 
 
 # =============================================================================

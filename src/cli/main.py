@@ -15,15 +15,20 @@ from datetime import datetime
 from src.agents.orchestrator import create_orchestrator
 from src.core.complexity import classify_complexity
 from src.core.ensemble import suggest_ensemble
+from src.utils.logging import configure_logging, get_logger
 from src.utils.events import (
+    get_event_emitter,
     emit_task_started,
     emit_task_progress,
     emit_task_completed,
     emit_system_message,
     emit_error,
     format_sse_event,
+    Event,
     EventType,
 )
+
+_cli_logger = get_logger("cli")
 
 # Create CLI app
 app = typer.Typer(
@@ -32,6 +37,36 @@ app = typer.Typer(
     add_completion=True,
     no_args_is_help=True,
 )
+
+
+def _cli_event_handler(event: Event) -> None:
+    """Handle events for CLI display - prints structured status lines."""
+    source = event.source
+    data = event.data
+    etype = event.event_type
+
+    if etype == EventType.AGENT_STARTED:
+        typer.echo(f"  [{source}] Started - {data.get('phase', '')}")
+    elif etype == EventType.AGENT_COMPLETED:
+        typer.echo(f"  [{source}] Completed - {data.get('output_summary', '')}")
+    elif etype == EventType.AGENT_FAILED:
+        typer.echo(f"  [{source}] FAILED - {data.get('error_message', '')}", err=True)
+    elif etype == EventType.TASK_PROGRESS:
+        pct = data.get('percentage', 0)
+        msg = data.get('message', '')
+        typer.echo(f"  [Progress] {pct:.0f}% - {msg}")
+    elif etype == EventType.PHASE_STARTED:
+        typer.echo(f"  [Pipeline] Phase started: {data.get('phase', '')}")
+    elif etype == EventType.PHASE_COMPLETED:
+        typer.echo(f"  [Pipeline] Phase completed: {data.get('phase', '')}")
+    elif etype == EventType.VERDICT_PASSED:
+        typer.echo(f"  [Quality] PASSED - {data.get('gate_name', '')}")
+    elif etype == EventType.VERDICT_FAILED:
+        typer.echo(f"  [Quality] FAILED - {data.get('gate_name', '')}: {data.get('details', '')}")
+    elif etype == EventType.SYSTEM_MESSAGE:
+        typer.echo(f"  [System] {data.get('message', '')}")
+    elif etype == EventType.SME_SPAWNED:
+        typer.echo(f"  [SME] Spawned: {data.get('persona_name', source)}")
 
 
 @app.callback()
@@ -45,13 +80,34 @@ def setup(
 
     Sets up logging, loads environment, and initializes the orchestrator.
     """
-    # Set up verbose logging if requested
+    # Configure structured logging
+    configure_logging(
+        level="DEBUG" if verbose else "INFO",
+        json_output=False,
+        enable_filtering=True,
+    )
+
+    # Subscribe to events for real-time CLI display when verbose
     if verbose:
-        import logging
-        logging.basicConfig(
-            level=logging.DEBUG,
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        emitter = get_event_emitter()
+        emitter.subscribe(
+            event_types=[
+                EventType.AGENT_STARTED,
+                EventType.AGENT_COMPLETED,
+                EventType.AGENT_FAILED,
+                EventType.TASK_PROGRESS,
+                EventType.PHASE_STARTED,
+                EventType.PHASE_COMPLETED,
+                EventType.VERDICT_PASSED,
+                EventType.VERDICT_FAILED,
+                EventType.SYSTEM_MESSAGE,
+                EventType.SME_SPAWNED,
+            ],
+            callback=_cli_event_handler,
+            subscriber_id="cli_display",
         )
+
+    _cli_logger.info("cli.setup", verbose=verbose, config_file=config_file)
 
     # Load configuration
     if config_file:
@@ -61,6 +117,7 @@ def setup(
                 config = yaml.safe_load(f)
             ctx.obj = {"config": config or {}}
         except (yaml.YAMLError, OSError) as e:
+            _cli_logger.error("cli.config_load_failed", error=str(e))
             typer.echo(f"Error loading config file '{config_file}': {e}", err=True)
             raise typer.Exit(code=1)
     else:

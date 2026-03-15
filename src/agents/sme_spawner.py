@@ -12,6 +12,9 @@ from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
 from enum import Enum
 
+from src.utils.logging import get_agent_logger, AgentLogContext
+from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
+
 from src.schemas.sme import (
     SMEAdvisoryReport,
     SMEInteractionMode,
@@ -87,6 +90,8 @@ class SMESpawner:
         self.skills_dir = Path(skills_dir)
         self.sme_templates_dir = Path(sme_templates_dir)
         self.model = model
+        self.logger = get_agent_logger("sme_spawner")
+        self.logger.info("SMESpawner initialized", model=model)
 
         # Ensure directories exist
         self.skills_dir.mkdir(parents=True, exist_ok=True)
@@ -109,6 +114,14 @@ class SMESpawner:
         Returns:
             SpawnResult with spawned SMEs
         """
+        self.logger.info(
+            "SME spawn started",
+            selections_count=len(selections),
+            task_context_preview=task_context[:100],
+            execution_phase=execution_phase,
+        )
+        emit_agent_started("sme_spawner", phase="spawn")
+
         spawned_smes = []
         interaction_modes = set()
 
@@ -127,7 +140,19 @@ class SMESpawner:
                     persona = matching[0]
 
             if persona is None:
+                self.logger.warning(
+                    "Persona not found, skipping",
+                    persona_name=selection.persona_name,
+                    persona_domain=selection.persona_domain,
+                )
                 continue  # Skip if persona not found
+
+            self.logger.debug(
+                "Persona selected for spawn",
+                persona_id=persona.persona_id,
+                persona_name=persona.name,
+                domain=persona.domain,
+            )
 
             # Convert interaction mode
             interaction_mode = self._convert_interaction_mode(selection.interaction_mode)
@@ -141,6 +166,11 @@ class SMESpawner:
 
             # Load skills
             skills_loaded = self._load_skills(persona, selection.skills_to_load)
+            self.logger.debug(
+                "Skills loaded for SME",
+                persona_id=persona.persona_id,
+                skills_loaded=skills_loaded,
+            )
 
             # Create spawned SME
             spawned = SpawnedSME(
@@ -160,6 +190,19 @@ class SMESpawner:
 
             spawned_smes.append(spawned)
             interaction_modes.add(interaction_mode)
+            self.logger.info(
+                "SME spawned successfully",
+                persona_id=persona.persona_id,
+                persona_name=persona.name,
+                interaction_mode=interaction_mode.value,
+            )
+
+        self.logger.info(
+            "SME spawn completed",
+            total_spawned=len(spawned_smes),
+            interaction_modes=[m.value for m in interaction_modes],
+        )
+        emit_agent_completed("sme_spawner", output_summary=f"Spawned {len(spawned_smes)} SMEs")
 
         return SpawnResult(
             spawned_smes=spawned_smes,
@@ -193,6 +236,12 @@ class SMESpawner:
         """
         # Determine interaction mode
         mode = spawned_sme.interaction_mode
+        self.logger.info(
+            "SME interaction started",
+            persona_name=spawned_sme.persona_name,
+            interaction_mode=mode.value,
+            interaction_type=interaction_type,
+        )
 
         if mode == SMEInteractionMode.ADVISOR:
             return self._execute_advisor_mode(spawned_sme, content, additional_context)

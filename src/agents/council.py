@@ -12,6 +12,9 @@ from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
 from enum import Enum
 
+from src.utils.logging import get_agent_logger, AgentLogContext
+from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
+
 from src.schemas.council import (
     SMESelectionReport,
     SMESelection,
@@ -66,7 +69,9 @@ class CouncilChairAgent:
         self.system_prompt_path = system_prompt_path
         self.model = model
         self.max_turns = max_turns
+        self.logger = get_agent_logger("council")
         self.system_prompt = self._load_system_prompt()
+        self.logger.info("CouncilChairAgent initialized", model=model)
 
         # Domain keyword patterns for SME selection
         self.domain_patterns = {
@@ -131,14 +136,28 @@ class CouncilChairAgent:
         Returns:
             SMESelectionReport with selected SMEs and collaboration plan
         """
+        self.logger.info(
+            "SME selection started",
+            tier_level=tier_level,
+            max_smes=max_smes,
+            task_preview=task_description[:100],
+        )
+        emit_agent_started("council", phase="sme_selection")
+
         # Step 1: Identify required domains
         required_domains = self._identify_required_domains(
             task_description, analyst_report
         )
+        self.logger.debug("Required domains identified", domains=required_domains)
 
         # Step 2: Select SME personas for each domain
         selected_smes = self._select_smes_for_domains(
             required_domains, tier_level, max_smes
+        )
+        self.logger.info(
+            "SME personas selected",
+            count=len(selected_smes),
+            personas=[s.persona_name for s in selected_smes],
         )
 
         # Step 3: Define interaction modes
@@ -152,6 +171,8 @@ class CouncilChairAgent:
         domain_gaps = self._identify_domain_gaps(
             required_domains, selected_smes
         )
+        if domain_gaps:
+            self.logger.warning("Domain gaps identified", gaps=domain_gaps)
 
         # Step 5: Create collaboration plan
         collaboration_plan = self._create_collaboration_plan(
@@ -168,6 +189,13 @@ class CouncilChairAgent:
         requires_full_council = self._requires_full_council(
             task_description, tier_level, selected_smes
         )
+        self.logger.info(
+            "SME selection completed",
+            smes_selected=len(selected_smes),
+            requires_full_council=requires_full_council,
+            domain_gaps=len(domain_gaps),
+        )
+        emit_agent_completed("council", output_summary=f"Selected {len(selected_smes)} SMEs")
 
         return SMESelectionReport(
             task_summary=task_description[:200],
@@ -443,7 +471,9 @@ class QualityArbiterAgent:
         self.system_prompt_path = system_prompt_path
         self.model = model
         self.max_turns = max_turns
+        self.logger = get_agent_logger("council")
         self.system_prompt = self._load_system_prompt()
+        self.logger.info("QualityArbiterAgent initialized", model=model)
 
         # Default quality criteria templates
         self.default_criteria = {
@@ -492,6 +522,13 @@ class QualityArbiterAgent:
         Returns:
             QualityStandard with acceptance criteria
         """
+        self.logger.info(
+            "Setting quality standard",
+            tier_level=tier_level,
+            has_analyst_report=analyst_report is not None,
+            custom_requirements_count=len(custom_requirements) if custom_requirements else 0,
+        )
+
         # Step 1: Build quality criteria
         quality_criteria = self._build_quality_criteria(
             task_description, analyst_report, tier_level, custom_requirements
@@ -499,6 +536,7 @@ class QualityArbiterAgent:
 
         # Step 2: Set pass threshold
         pass_threshold = self._determine_pass_threshold(tier_level)
+        self.logger.debug("Pass threshold determined", threshold=pass_threshold)
 
         # Step 3: Define critical must-haves
         critical_must_haves = self._define_critical_must_haves(
@@ -513,6 +551,13 @@ class QualityArbiterAgent:
         # Step 5: Define measurement protocol
         measurement_protocol = self._define_measurement_protocol(
             quality_criteria, tier_level
+        )
+
+        self.logger.info(
+            "Quality standard set",
+            criteria_count=len(quality_criteria),
+            must_haves=len(critical_must_haves),
+            pass_threshold=pass_threshold,
         )
 
         return QualityStandard(
@@ -543,10 +588,17 @@ class QualityArbiterAgent:
         Returns:
             QualityVerdict with binding resolution
         """
+        self.logger.info(
+            "Dispute resolution started",
+            reviewer_verdict=reviewer_verdict,
+        )
+        emit_agent_started("council", phase="dispute_resolution")
+
         # Step 1: Analyze the dispute
         disputed_items = self._analyze_dispute(
             verifier_report, critic_report, reviewer_verdict
         )
+        self.logger.debug("Disputed items analyzed", count=len(disputed_items))
 
         # Step 2: Perform arbiter analysis
         arbiter_analysis = self._perform_arbiter_analysis(
@@ -557,6 +609,7 @@ class QualityArbiterAgent:
         resolution = self._determine_resolution(
             arbiter_analysis, disputed_items
         )
+        self.logger.info("Dispute resolution determined", resolution=resolution)
 
         # Step 4: Define required actions
         required_actions = self._define_required_actions(
@@ -567,6 +620,14 @@ class QualityArbiterAgent:
         overrides_reviewer = self._should_override_reviewer(
             resolution, reviewer_verdict
         )
+        if overrides_reviewer:
+            self.logger.warning(
+                "Arbiter overriding Reviewer verdict",
+                original_verdict=reviewer_verdict,
+                resolution=resolution,
+            )
+
+        emit_agent_completed("council", output_summary=f"Dispute resolved: {resolution}")
 
         return QualityVerdict(
             original_dispute=arbitration_input.get("disagreement_reason", ""),
@@ -896,7 +957,9 @@ class EthicsAdvisorAgent:
         self.system_prompt_path = system_prompt_path
         self.model = model
         self.max_turns = max_turns
+        self.logger = get_agent_logger("council")
         self.system_prompt = self._load_system_prompt()
+        self.logger.info("EthicsAdvisorAgent initialized", model=model)
 
         # PII patterns
         self.pii_patterns = {
@@ -955,17 +1018,28 @@ class EthicsAdvisorAgent:
         Returns:
             EthicsReview with findings and verdict
         """
+        self.logger.info(
+            "Ethics review started",
+            task_preview=task_description[:100],
+            has_context=context is not None,
+        )
+        emit_agent_started("council", phase="ethics_review")
+
         # Step 1: Scan for PII
         pii_results = self._scan_for_pii(output)
+        self.logger.debug("PII scan complete", findings_count=len(pii_results["findings"]))
 
         # Step 2: Check for bias
         bias_results = self._check_for_bias(output)
+        self.logger.debug("Bias check complete", findings_count=len(bias_results["findings"]))
 
         # Step 3: Assess safety concerns
         safety_results = self._assess_safety(output)
+        self.logger.debug("Safety assessment complete", findings_count=len(safety_results["findings"]))
 
         # Step 4: Compliance assessment
         compliance_results = self._assess_compliance(output, context)
+        self.logger.debug("Compliance assessment complete", findings_count=len(compliance_results["findings"]))
 
         # Step 5: Compile flagged issues
         flagged_issues = (
@@ -993,6 +1067,21 @@ class EthicsAdvisorAgent:
             for issue in flagged_issues
             if issue.blocks_output
         ]
+
+        self.logger.info(
+            "Ethics review completed",
+            verdict=verdict,
+            can_proceed=can_proceed,
+            total_issues=len(flagged_issues),
+            blocking_issues=len(required_remediations),
+        )
+        if not can_proceed:
+            self.logger.warning(
+                "Ethics review FAILED - output blocked",
+                verdict=verdict,
+                required_remediations=required_remediations,
+            )
+        emit_agent_completed("council", output_summary=f"Ethics review: {verdict}")
 
         return EthicsReview(
             output_summary=output[:100],

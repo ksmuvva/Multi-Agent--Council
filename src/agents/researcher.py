@@ -20,6 +20,8 @@ from src.schemas.researcher import (
     ConfidenceLevel,
     SourceReliability,
 )
+from src.utils.logging import get_agent_logger, AgentLogContext
+from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
 
 
 @dataclass
@@ -102,6 +104,8 @@ class ResearcherAgent:
             "realpython.com",
         ]
 
+        self.logger = get_agent_logger("researcher")
+
     def research(
         self,
         topic: str,
@@ -123,53 +127,78 @@ class ResearcherAgent:
         Returns:
             EvidenceBrief with research findings
         """
-        # Generate search queries if not provided
-        if not queries:
-            queries = self._generate_search_queries(topic)
+        self.logger.info("research_started", topic=topic, query_count=len(queries) if queries else 0)
+        emit_agent_started("researcher", phase="research")
 
-        # Step 1: Search for information
-        search_results = self._perform_searches(queries)
+        try:
+            # Generate search queries if not provided
+            if not queries:
+                queries = self._generate_search_queries(topic)
 
-        # Step 2: Fetch content from promising results
-        fetched_content = self._fetch_content(search_results[:5])
+            # Step 1: Search for information
+            search_results = self._perform_searches(queries)
 
-        # Step 3: Extract findings
-        findings = self._extract_findings(fetched_content, topic)
+            self.logger.info("sources_discovered", source_count=len(search_results), topic=topic)
 
-        # Step 4: Identify conflicts
-        conflicts = self._identify_conflicts(findings)
+            # Step 2: Fetch content from promising results
+            fetched_content = self._fetch_content(search_results[:5])
 
-        # Step 5: Identify gaps
-        gaps = self._identify_knowledge_gaps(topic, findings, queries)
+            # Step 3: Extract findings
+            findings = self._extract_findings(fetched_content, topic)
 
-        # Step 6: Incorporate SME inputs if provided
-        if sme_inputs:
-            findings = self._incorporate_sme_inputs(findings, sme_inputs)
+            self.logger.info("findings_extracted", findings_count=len(findings), topic=topic)
 
-        # Step 7: Determine overall confidence
-        overall_confidence = self._calculate_overall_confidence(findings)
+            # Step 4: Identify conflicts
+            conflicts = self._identify_conflicts(findings)
 
-        # Step 8: Generate recommended approach
-        recommended_approach = self._recommend_approach(
-            findings, conflicts, gaps, overall_confidence
-        )
+            # Step 5: Identify gaps
+            gaps = self._identify_knowledge_gaps(topic, findings, queries)
 
-        # Step 9: Build summary
-        summary = self._build_summary(topic, findings, overall_confidence)
+            # Step 6: Incorporate SME inputs if provided
+            if sme_inputs:
+                findings = self._incorporate_sme_inputs(findings, sme_inputs)
 
-        # Build sources list
-        sources = self._build_sources(fetched_content)
+            # Step 7: Determine overall confidence
+            overall_confidence = self._calculate_overall_confidence(findings)
 
-        return EvidenceBrief(
-            research_topic=topic,
-            summary=summary,
-            findings=findings,
-            conflicts=conflicts,
-            gaps=gaps,
-            overall_confidence=overall_confidence,
-            recommended_approach=recommended_approach,
-            additional_research_needed=len(gaps) > 0 or overall_confidence == ConfidenceLevel.LOW,
-        )
+            # Step 8: Generate recommended approach
+            recommended_approach = self._recommend_approach(
+                findings, conflicts, gaps, overall_confidence
+            )
+
+            # Step 9: Build summary
+            summary = self._build_summary(topic, findings, overall_confidence)
+
+            # Build sources list
+            sources = self._build_sources(fetched_content)
+
+            result = EvidenceBrief(
+                research_topic=topic,
+                summary=summary,
+                findings=findings,
+                conflicts=conflicts,
+                gaps=gaps,
+                overall_confidence=overall_confidence,
+                recommended_approach=recommended_approach,
+                additional_research_needed=len(gaps) > 0 or overall_confidence == ConfidenceLevel.LOW,
+            )
+
+            self.logger.info(
+                "research_completed",
+                topic=topic,
+                findings_count=len(findings),
+                conflicts_count=len(conflicts),
+                gaps_count=len(gaps),
+                overall_confidence=overall_confidence.value,
+            )
+            emit_agent_completed("researcher", output_summary=f"Research on '{topic}': {len(findings)} findings, confidence={overall_confidence.value}")
+
+            return result
+
+        except Exception as e:
+            self.logger.error("research_failed", topic=topic, error=str(e), exc_info=True)
+            emit_error("researcher", error_message=str(e), error_type=type(e).__name__)
+            raise
 
     # ========================================================================
     # Search Methods

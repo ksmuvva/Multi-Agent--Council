@@ -13,6 +13,15 @@ from enum import Enum
 
 import streamlit as st
 
+from src.utils.logging import get_logger
+from src.utils.events import (
+    get_event_emitter,
+    Event,
+    EventType,
+)
+
+_logger = get_logger("agent_panel")
+
 
 # =============================================================================
 # Agent Status Types
@@ -459,6 +468,93 @@ def handle_agent_event(event_data: Dict[str, Any]) -> None:
             status=AgentStatus.FAILED,
             error_message=event_data.get("error"),
         )
+
+
+# =============================================================================
+# Event System Integration
+# =============================================================================
+
+def setup_agent_event_subscriptions(session_id: Optional[str] = None) -> None:
+    """
+    Subscribe to agent lifecycle events from the event system.
+    Bridges events into Streamlit session state for real-time display.
+    """
+    if st.session_state.get("_agent_panel_subscribed"):
+        return
+
+    emitter = get_event_emitter()
+
+    # Map agent names to tiers
+    council_agents = {"Domain Council Chair", "Quality Arbiter", "Ethics & Safety Advisor"}
+
+    def _on_agent_event(event: Event) -> None:
+        """Handle agent events and update session state."""
+        source = event.source
+        data = event.data
+        agent_name = data.get("agent", source)
+
+        # Determine tier
+        if agent_name in council_agents:
+            tier = AgentTier.COUNCIL
+        elif "sme" in agent_name.lower() or data.get("tier") == "sme":
+            tier = AgentTier.SME
+        else:
+            tier = AgentTier.OPERATIONAL
+
+        agent_id = f"{tier.value}_{agent_name.lower().replace(' ', '_')}"
+
+        if event.event_type == EventType.AGENT_STARTED:
+            activity = AgentActivity(
+                agent_id=agent_id,
+                agent_name=agent_name,
+                tier=tier,
+                status=AgentStatus.RUNNING,
+                phase=data.get("phase", "Processing"),
+                progress=0.1,
+                start_time=datetime.now(),
+            )
+            add_agent_activity(activity)
+            _logger.debug("agent_panel.agent_started", agent=agent_name, tier=tier.value)
+
+        elif event.event_type == EventType.AGENT_COMPLETED:
+            update_agent_status(
+                agent_id=agent_id,
+                status=AgentStatus.COMPLETED,
+                progress=1.0,
+                output_preview=data.get("output_summary", ""),
+            )
+            _logger.debug("agent_panel.agent_completed", agent=agent_name)
+
+        elif event.event_type == EventType.AGENT_FAILED:
+            update_agent_status(
+                agent_id=agent_id,
+                status=AgentStatus.FAILED,
+                error_message=data.get("error_message", "Unknown error"),
+            )
+            _logger.debug("agent_panel.agent_failed", agent=agent_name)
+
+        elif event.event_type == EventType.AGENT_PROGRESS:
+            update_agent_status(
+                agent_id=agent_id,
+                status=AgentStatus.RUNNING,
+                progress=data.get("progress", 0.5),
+                output_preview=data.get("message", ""),
+            )
+
+    emitter.subscribe(
+        event_types=[
+            EventType.AGENT_STARTED,
+            EventType.AGENT_COMPLETED,
+            EventType.AGENT_FAILED,
+            EventType.AGENT_PROGRESS,
+        ],
+        callback=_on_agent_event,
+        subscriber_id="streamlit_agent_panel",
+        session_id=session_id,
+    )
+
+    st.session_state._agent_panel_subscribed = True
+    _logger.info("agent_panel.subscriptions_active", session_id=session_id)
 
 
 # =============================================================================

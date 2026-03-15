@@ -14,6 +14,9 @@ from .complexity import TierLevel, TierClassification
 from .verdict import MatrixAction, Verdict, evaluate_verdict_matrix
 from .debate import DebateProtocol, ConsensusLevel
 from src.utils.logging import get_logger
+from src.utils.events import emit_task_progress, emit_system_message
+
+_logger = get_logger("pipeline")
 
 
 class Phase(str, Enum):
@@ -142,6 +145,7 @@ class ExecutionPipeline:
         """
         # Check if phase should be skipped
         if self._should_skip_phase(phase):
+            _logger.debug("pipeline.phase_skipped", phase=phase.value, tier=self.tier_level)
             return PhaseResult(
                 phase=phase,
                 status=PhaseStatus.SKIPPED,
@@ -151,9 +155,12 @@ class ExecutionPipeline:
 
         # Update state
         self.state.current_phase = phase
+        _logger.info("pipeline.phase_started", phase=phase.value, tier=self.tier_level)
+        emit_system_message(f"Pipeline phase started: {phase.value}")
 
         # Get agents for this phase
         agents = self._get_agents_for_phase(phase)
+        _logger.info("pipeline.phase_agents", phase=phase.value, agents=agents)
 
         # Execute agents
         agent_results = []
@@ -181,6 +188,13 @@ class ExecutionPipeline:
 
         if status == PhaseStatus.COMPLETE:
             self.state.completed_phases.append(phase)
+
+        _logger.info("pipeline.phase_completed",
+                     phase=phase.value,
+                     status=status.value,
+                     agents_count=len(agent_results),
+                     duration_ms=phase_result.duration_ms)
+        emit_system_message(f"Pipeline phase completed: {phase.value} [{status.value}]")
 
         return phase_result
 
