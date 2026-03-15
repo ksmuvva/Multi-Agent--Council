@@ -102,19 +102,23 @@ class FormatterAgent:
         Returns:
             Dictionary with formatted output and metadata
         """
-        with AgentLogContext("formatter", phase="formatting"):
-            self.logger.info("formatter.started",
-                             target_format=target_format,
-                             content_length=len(str(raw_content)),
-                             has_file_path=file_path is not None)
-            emit_agent_started("formatter", "formatting")
+        self.logger.info(
+            "Formatting started",
+            target_format=target_format,
+            content_type=type(raw_content).__name__,
+            content_length=len(str(raw_content)),
+            has_file_path=file_path is not None,
+        )
+        emit_agent_started("formatter", phase="formatting")
 
         # Normalize format
         try:
             format_enum = OutputFormat(target_format.lower())
         except ValueError:
             format_enum = self._infer_format(raw_content, context)
-            self.logger.info("formatter.format_inferred", inferred_format=format_enum.value)
+            self.logger.info("Format inferred from content", inferred_format=format_enum.value)
+
+        self.logger.debug("Format type selected", format=format_enum.value)
 
         # Format based on type
         if format_enum == OutputFormat.MARKDOWN:
@@ -142,10 +146,12 @@ class FormatterAgent:
                 "size_bytes": len(str(output)) if isinstance(output, str) else 0,
             }
         }
-        self.logger.info("formatter.completed",
-                         format=format_enum.value,
-                         output_size=result["metadata"]["size_bytes"])
-        emit_agent_completed("formatter", f"Formatted as {format_enum.value}")
+        self.logger.info(
+            "Formatting completed",
+            format=format_enum.value,
+            output_size=result["metadata"]["size_bytes"],
+        )
+        emit_agent_completed("formatter", output_summary=f"Formatted as {format_enum.value}")
         return result
 
     # ========================================================================
@@ -997,8 +1003,7 @@ class FormatterAgent:
                 yaml.safe_load(code)
             except ImportError:
                 # yaml not available; log and skip validation
-                import logging
-                logging.getLogger(__name__).warning("PyYAML not installed; skipping YAML validation")
+                self.logger.warning("PyYAML not installed; skipping YAML validation")
             except yaml.YAMLError as e:
                 valid = False
                 if hasattr(e, "problem_mark") and e.problem_mark is not None:
@@ -1091,10 +1096,9 @@ class FormatterAgent:
             try:
                 return OutputFormat(context["format"].lower())
             except ValueError:
-                import logging
-                logging.getLogger(__name__).warning(
-                    "Unknown output format '%s'; falling back to auto-detection",
-                    context["format"],
+                self.logger.warning(
+                    "Unknown output format, falling back to auto-detection",
+                    requested_format=context["format"],
                 )
 
         # Check content type
