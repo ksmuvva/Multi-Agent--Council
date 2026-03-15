@@ -353,8 +353,94 @@ def _execute_sdk_query(
         }
 
     except ImportError:
+        # Check if we should use GLM API instead
+        settings = get_settings()
+        if settings.llm_provider.value == "glm":
+            return _execute_glm_api(sdk_kwargs, input_data)
         # Fall back to direct Anthropic API
         return _execute_anthropic_api(sdk_kwargs, input_data)
+
+
+def _execute_glm_api(
+    sdk_kwargs: Dict[str, Any],
+    input_data: str,
+) -> Dict[str, Any]:
+    """
+    Execute via ZhipuAI GLM API (OpenAI-compatible endpoint).
+
+    Used when MAS_LLM_PROVIDER=glm.
+    """
+    import httpx
+    import time as _time
+
+    settings = get_settings()
+    api_key = settings.get_api_key()
+    base_url = settings.get_base_url() or "https://open.bigmodel.cn/api/paas/v4"
+    model = sdk_kwargs.get("model", "glm-4-plus")
+
+    messages = []
+    system_prompt = sdk_kwargs.get("system_prompt", "")
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": input_data})
+
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.7,
+        "max_tokens": 4096,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    logger = get_logger("sdk_integration")
+
+    for attempt in range(3):
+        try:
+            with httpx.Client(timeout=120) as client:
+                resp = client.post(
+                    f"{base_url}/chat/completions",
+                    json=payload,
+                    headers=headers,
+                )
+
+            if resp.status_code != 200:
+                logger.warning(
+                    "glm_api.error",
+                    status=resp.status_code,
+                    body=resp.text[:200],
+                    attempt=attempt + 1,
+                )
+                if resp.status_code in (429, 500, 502, 503):
+                    _time.sleep(2 ** (attempt + 1))
+                    continue
+                break
+
+            data = resp.json()
+            choice = data.get("choices", [{}])[0]
+            message = choice.get("message", {})
+            usage = data.get("usage", {})
+
+            total_tokens = usage.get("total_tokens", 0)
+            # GLM pricing estimate (approx)
+            cost = total_tokens / 1_000_000 * 2.0
+
+            return {
+                "output": message.get("content", ""),
+                "tokens_used": total_tokens,
+                "cost_usd": cost,
+            }
+
+        except Exception as e:
+            logger.warning("glm_api.retry", error=str(e), attempt=attempt + 1)
+            _time.sleep(2 ** (attempt + 1))
+
+    # All retries exhausted - fall back to simulation
+    logger.error("glm_api.all_retries_exhausted", model=model)
+    return _simulate_response(sdk_kwargs, input_data)
 
 
 def _execute_anthropic_api(
@@ -403,6 +489,10 @@ def _execute_anthropic_api(
         }
 
     except ImportError:
+        # Check GLM before simulation
+        settings = get_settings()
+        if settings.llm_provider.value == "glm":
+            return _execute_glm_api(sdk_kwargs, input_data)
         # No SDK available - return simulated response
         return _simulate_response(sdk_kwargs, input_data)
 
