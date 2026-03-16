@@ -5,11 +5,14 @@ Scans every factual claim in proposed output for verification,
 confidence scoring, and fabrication risk assessment.
 """
 
+import json
 import re
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
 from urllib.parse import urlparse
+
+from src.core.react import ReactLoop
 
 from src.schemas.verifier import (
     VerificationReport,
@@ -91,6 +94,7 @@ class VerifierAgent:
         sources: Optional[List[str]] = None,
         sme_verifications: Optional[Dict[str, str]] = None,
         context: Optional[Dict[str, Any]] = None,
+        mode: str = "react",
     ) -> VerificationReport:
         """
         Verify factual claims in the content.
@@ -113,17 +117,39 @@ class VerifierAgent:
         emit_agent_started("verifier", phase="verify")
 
         try:
+            if mode == "react":
+                return self._react_verify(content, sources, sme_verifications, context)
+
             # Step 1: Extract claims
             extraction = self._extract_claims(content)
+            self.logger.info(
+                "claims_extracted",
+                total_claims=extraction.total_claims,
+                content_length=len(content),
+            )
 
             # Step 2: Verify each claim
             verified_claims = []
-            for claim in extraction.claims:
+            for i, claim in enumerate(extraction.claims):
+                self.logger.debug(
+                    "verifying_claim",
+                    claim_index=i + 1,
+                    total_claims=extraction.total_claims,
+                    claim_preview=claim[:80],
+                )
                 claim_verification = self._verify_claim(
                     claim,
                     content,
                     sources,
                     sme_verifications
+                )
+                self.logger.debug(
+                    "claim_verified",
+                    claim_index=i + 1,
+                    status=claim_verification.status.value,
+                    confidence=claim_verification.confidence,
+                    fabrication_risk=claim_verification.fabrication_risk.value,
+                    method=claim_verification.verification_method,
                 )
                 verified_claims.append(claim_verification)
 
@@ -218,6 +244,52 @@ class VerifierAgent:
             self.logger.error("verification_failed", error=str(e), exc_info=True)
             emit_error("verifier", error_message=str(e), error_type=type(e).__name__)
             raise
+
+    # ========================================================================
+    # ReAct Mode
+    # ========================================================================
+
+    def _react_verify(
+        self,
+        content: str,
+        sources: Optional[List[str]] = None,
+        sme_verifications: Optional[Dict[str, str]] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> VerificationReport:
+        """Run verification using ReAct loop."""
+        react_instruction = (
+            "You are the Verifier (Hallucination Guard). Extract every factual claim "
+            "from the content. Verify each against sources using WebSearch. Score "
+            "confidence (HIGH/MEDIUM/LOW). Flag fabrication risks. Calculate overall "
+            "reliability. Verdict: PASS if reliability >= 0.7, else FAIL. "
+            "Return a VerificationReport JSON."
+        )
+        system_prompt = f"{self.system_prompt}\n\n{react_instruction}"
+
+        task_input = f"Verify this content for accuracy:\n\n{content}"
+        if sources:
+            task_input += f"\n\nSources:\n{json.dumps(sources)}"
+        if sme_verifications:
+            task_input += f"\n\nSME verifications:\n{json.dumps(sme_verifications)}"
+        if context:
+            task_input += f"\n\nContext:\n{json.dumps(context, default=str)}"
+
+        loop = ReactLoop(
+            agent_name="verifier",
+            system_prompt=system_prompt,
+            allowed_tools=["Read", "WebSearch", "WebFetch"],
+            output_schema=VerificationReport,
+            model=self.model,
+            max_turns=self.max_turns,
+        )
+
+        result = loop.run(task_input)
+
+        if result and "output" in result and isinstance(result["output"], VerificationReport):
+            return result["output"]
+
+        # Fallback to procedural logic
+        return self.verify(content, sources, sme_verifications, context, mode="local")
 
     # ========================================================================
     # Claim Extraction

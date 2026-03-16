@@ -69,6 +69,13 @@ class EventType(str, Enum):
     # Memory
     KNOWLEDGE_SAVED = "knowledge_saved"
 
+    # ReAct loop events
+    REACT_THOUGHT = "react_thought"
+    REACT_ACTION = "react_action"
+    REACT_OBSERVATION = "react_observation"
+    REACT_FINAL_ANSWER = "react_final_answer"
+    REACT_ERROR = "react_error"
+
 
 # =============================================================================
 # Event Data Structures

@@ -5,8 +5,11 @@ Creates sequenced execution plans with agent assignments,
 dependencies, and parallelization opportunities.
 """
 
+import json
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+
+from src.core.react import ReactLoop
 
 from src.schemas.planner import (
     ExecutionPlan,
@@ -71,6 +74,7 @@ class PlannerAgent:
         analyst_report: TaskIntelligenceReport,
         sme_selections: Optional[List[str]] = None,
         context: Optional[Dict[str, Any]] = None,
+        mode: str = "react",
     ) -> ExecutionPlan:
         """
         Create an execution plan from the analyst's report.
@@ -90,6 +94,9 @@ class PlannerAgent:
         emit_agent_started("planner", phase="planning")
 
         try:
+            if mode == "react":
+                return self._react_create_plan(analyst_report, sme_selections, context)
+
             # Generate steps based on analyst report
             steps = self._generate_steps(analyst_report, sme_selections, context)
 
@@ -151,6 +158,47 @@ class PlannerAgent:
             self.logger.error("planner_failed", error=str(e), exc_info=True)
             emit_error("planner", error_message=str(e), error_type=type(e).__name__)
             raise
+
+    # ========================================================================
+    # ReAct Mode
+    # ========================================================================
+
+    def _react_create_plan(
+        self,
+        analyst_report: TaskIntelligenceReport,
+        sme_selections: Optional[List[str]] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> ExecutionPlan:
+        """Run planning using ReAct loop."""
+        react_instruction = (
+            "You are the Planner. Create a step-by-step execution plan with agent "
+            "assignments, parallelization groups, critical path, SME requirements, "
+            "duration estimates, and risk factors. Return an ExecutionPlan JSON."
+        )
+        system_prompt = f"{self.system_prompt}\n\n{react_instruction}"
+
+        task_input = f"Analyst report:\n{analyst_report.model_dump_json()}"
+        if sme_selections:
+            task_input += f"\n\nSME selections:\n{json.dumps(sme_selections)}"
+        if context:
+            task_input += f"\n\nContext:\n{json.dumps(context, default=str)}"
+
+        loop = ReactLoop(
+            agent_name="planner",
+            system_prompt=system_prompt,
+            allowed_tools=["Read", "Glob"],
+            output_schema=ExecutionPlan,
+            model=self.model,
+            max_turns=self.max_turns,
+        )
+
+        result = loop.run(task_input)
+
+        if result and "output" in result and isinstance(result["output"], ExecutionPlan):
+            return result["output"]
+
+        # Fallback to procedural logic
+        return self.create_plan(analyst_report, sme_selections, context, mode="local")
 
     # ========================================================================
     # Plan Generation Methods

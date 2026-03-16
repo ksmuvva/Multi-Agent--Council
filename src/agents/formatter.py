@@ -17,6 +17,7 @@ from enum import Enum
 from src.schemas.analyst import ModalityType
 from src.utils.logging import get_agent_logger, AgentLogContext
 from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
+from src.core.react import ReactLoop
 
 
 class OutputFormat(str, Enum):
@@ -89,6 +90,7 @@ class FormatterAgent:
         target_format: str = "markdown",
         file_path: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
+        mode: str = "react",
     ) -> Dict[str, Any]:
         """
         Format raw content into the target format.
@@ -102,6 +104,9 @@ class FormatterAgent:
         Returns:
             Dictionary with formatted output and metadata
         """
+        if mode == "react":
+            return self._react_format_output(raw_content, target_format, context)
+
         self.logger.info(
             "Formatting started",
             target_format=target_format,
@@ -153,6 +158,56 @@ class FormatterAgent:
         )
         emit_agent_completed("formatter", output_summary=f"Formatted as {format_enum.value}")
         return result
+
+    def _react_format_output(
+        self,
+        raw_content: Any,
+        target_format: str = "markdown",
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Run formatting using ReAct loop."""
+        react_instruction = (
+            "You are the Formatter. Transform raw content into the requested output format. "
+            "Supported formats: markdown, code, JSON, YAML, text, and file formats "
+            "(DOCX, PDF, XLSX, PPTX via python libraries). Optimize structure, add syntax "
+            "highlighting for code, generate tables/diagrams as needed. Use Write to create "
+            "output files if needed. Return the formatted content."
+        )
+        system_prompt = f"{self.system_prompt}\n\n{react_instruction}"
+
+        task_input = f"Format this content as {target_format}:\n\n{raw_content}"
+
+        if context:
+            task_input += "\n\nContext:\n" + json.dumps(context, default=str)
+
+        loop = ReactLoop(
+            agent_name="formatter",
+            system_prompt=system_prompt,
+            allowed_tools=["Read", "Write", "Bash", "Skill"],
+            output_schema=None,
+            model=self.model,
+            max_turns=self.max_turns,
+        )
+
+        result = loop.run(task_input)
+
+        if result and result.get("status") == "success" and "output" in result:
+            return {
+                "formatted_output": result["output"],
+                "format": target_format,
+                "file_path": None,
+                "metadata": {
+                    "timestamp": datetime.now().isoformat(),
+                    "size_bytes": len(str(result["output"])),
+                },
+            }
+
+        # Fallback to procedural logic
+        self.logger.warning(
+            "react_fallback",
+            reason="ReAct loop did not succeed, falling back to local mode",
+        )
+        return self.format(raw_content, target_format, context=context, mode="local")
 
     # ========================================================================
     # Format Implementations

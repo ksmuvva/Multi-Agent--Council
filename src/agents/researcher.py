@@ -5,11 +5,14 @@ Gathers evidence from external sources using WebSearch and WebFetch,
 producing EvidenceBrief with confidence levels and source reliability.
 """
 
+import json
 import re
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
 from urllib.parse import urlparse
+
+from src.core.react import ReactLoop
 
 from src.schemas.researcher import (
     EvidenceBrief,
@@ -113,6 +116,7 @@ class ResearcherAgent:
         specific_urls: Optional[List[str]] = None,
         sme_inputs: Optional[Dict[str, str]] = None,
         context: Optional[Dict[str, Any]] = None,
+        mode: str = "react",
     ) -> EvidenceBrief:
         """
         Research a topic and produce an EvidenceBrief.
@@ -131,17 +135,28 @@ class ResearcherAgent:
         emit_agent_started("researcher", phase="research")
 
         try:
+            if mode == "react":
+                return self._react_research(topic, queries, specific_urls, sme_inputs, context)
+
             # Generate search queries if not provided
             if not queries:
                 queries = self._generate_search_queries(topic)
+                self.logger.debug("queries_generated", queries=queries, count=len(queries))
 
             # Step 1: Search for information
+            self.logger.debug("search_phase_started", query_count=len(queries))
             search_results = self._perform_searches(queries)
 
             self.logger.info("sources_discovered", source_count=len(search_results), topic=topic)
 
             # Step 2: Fetch content from promising results
+            self.logger.debug("content_fetch_started", urls_to_fetch=len(search_results[:5]))
             fetched_content = self._fetch_content(search_results[:5])
+            self.logger.debug(
+                "content_fetch_completed",
+                fetched_count=len(fetched_content),
+                total_words=sum(c.word_count for c in fetched_content),
+            )
 
             # Step 3: Extract findings
             findings = self._extract_findings(fetched_content, topic)
@@ -150,13 +165,19 @@ class ResearcherAgent:
 
             # Step 4: Identify conflicts
             conflicts = self._identify_conflicts(findings)
+            if conflicts:
+                self.logger.info("conflicts_detected", conflict_count=len(conflicts), topic=topic)
 
             # Step 5: Identify gaps
             gaps = self._identify_knowledge_gaps(topic, findings, queries)
+            if gaps:
+                self.logger.info("knowledge_gaps_found", gap_count=len(gaps), gap_topics=[g.topic for g in gaps])
 
             # Step 6: Incorporate SME inputs if provided
             if sme_inputs:
+                self.logger.info("sme_integration_started", sme_count=len(sme_inputs), sme_names=list(sme_inputs.keys()))
                 findings = self._incorporate_sme_inputs(findings, sme_inputs)
+                self.logger.info("sme_integration_completed", total_findings=len(findings))
 
             # Step 7: Determine overall confidence
             overall_confidence = self._calculate_overall_confidence(findings)
@@ -199,6 +220,54 @@ class ResearcherAgent:
             self.logger.error("research_failed", topic=topic, error=str(e), exc_info=True)
             emit_error("researcher", error_message=str(e), error_type=type(e).__name__)
             raise
+
+    # ========================================================================
+    # ReAct Mode
+    # ========================================================================
+
+    def _react_research(
+        self,
+        topic: str,
+        queries: Optional[List[str]] = None,
+        specific_urls: Optional[List[str]] = None,
+        sme_inputs: Optional[Dict[str, str]] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> EvidenceBrief:
+        """Run research using ReAct loop."""
+        react_instruction = (
+            "You are the Researcher. Search for evidence using WebSearch, fetch content "
+            "from authoritative sources with WebFetch, cross-reference claims, identify "
+            "conflicts and gaps. Rate source reliability and finding confidence. "
+            "Return an EvidenceBrief JSON."
+        )
+        system_prompt = f"{self.system_prompt}\n\n{react_instruction}"
+
+        task_input = f"Research topic: {topic}"
+        if queries:
+            task_input += f"\n\nSearch queries:\n{json.dumps(queries)}"
+        if specific_urls:
+            task_input += f"\n\nSpecific URLs to check:\n{json.dumps(specific_urls)}"
+        if sme_inputs:
+            task_input += f"\n\nSME inputs:\n{json.dumps(sme_inputs)}"
+        if context:
+            task_input += f"\n\nContext:\n{json.dumps(context, default=str)}"
+
+        loop = ReactLoop(
+            agent_name="researcher",
+            system_prompt=system_prompt,
+            allowed_tools=["WebSearch", "WebFetch", "Read"],
+            output_schema=EvidenceBrief,
+            model=self.model,
+            max_turns=self.max_turns,
+        )
+
+        result = loop.run(task_input)
+
+        if result and "output" in result and isinstance(result["output"], EvidenceBrief):
+            return result["output"]
+
+        # Fallback to procedural logic
+        return self.research(topic, queries, specific_urls, sme_inputs, context, mode="local")
 
     # ========================================================================
     # Search Methods

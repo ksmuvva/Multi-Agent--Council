@@ -5,6 +5,7 @@ Generates solutions using Tree of Thoughts, exploring multiple
 approaches and selecting the optimal path.
 """
 
+import json
 import os
 import time
 from typing import List, Dict, Any, Optional, Tuple
@@ -15,6 +16,7 @@ from pathlib import Path
 from src.schemas.analyst import ModalityType, TaskIntelligenceReport
 from src.utils.logging import get_agent_logger, AgentLogContext
 from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
+from src.core.react import ReactLoop
 
 
 class ThoughtBranch(str, Enum):
@@ -113,6 +115,7 @@ class ExecutorAgent:
         analyst_report: Optional[TaskIntelligenceReport] = None,
         sme_advisory: Optional[Dict[str, str]] = None,
         context: Optional[Dict[str, Any]] = None,
+        mode: str = "react",
     ) -> ExecutionResult:
         """
         Execute a task using Tree of Thoughts.
@@ -135,16 +138,37 @@ class ExecutorAgent:
         emit_agent_started("executor", phase="execute")
 
         try:
+            if mode == "react":
+                return self._react_execute(task, analyst_report, sme_advisory, context)
+
             start_time = time.time()
 
             # Step 1: Decompose the problem
             sub_problems = self._decompose_problem(task, analyst_report)
+            self.logger.info(
+                "problem_decomposed",
+                sub_problem_count=len(sub_problems),
+                sub_problems=sub_problems,
+            )
 
             # Step 2: Generate approaches for each sub-problem
             approaches = self._generate_approaches(sub_problems, analyst_report)
+            self.logger.info(
+                "approaches_generated",
+                approach_count=len(approaches),
+                approach_names=[a.name for a in approaches],
+            )
 
             # Step 3: Score and rank approaches
             scored_approaches = self._score_approaches(approaches, task, analyst_report)
+            for approach in scored_approaches:
+                self.logger.debug(
+                    "approach_scored",
+                    approach=approach.name,
+                    score=approach.score,
+                    complexity=approach.complexity,
+                    estimated_time=approach.estimated_time,
+                )
 
             # Step 4: Select best approach
             selected_approach = self._select_best_approach(scored_approaches)
@@ -158,6 +182,12 @@ class ExecutorAgent:
 
             # Step 5: Incorporate SME advice if provided
             if sme_advisory:
+                self.logger.info(
+                    "sme_advice_integration",
+                    sme_count=len(sme_advisory),
+                    sme_names=list(sme_advisory.keys()),
+                    approach=selected_approach.name,
+                )
                 selected_approach = self._adapt_to_sme_advice(
                     selected_approach, sme_advisory
                 )
@@ -199,6 +229,68 @@ class ExecutorAgent:
             self.logger.error("execution_failed", task=task[:200], error=str(e), exc_info=True)
             emit_error("executor", error_message=str(e), error_type=type(e).__name__)
             raise
+
+    # ========================================================================
+    # ReAct Mode
+    # ========================================================================
+
+    def _react_execute(
+        self,
+        task: str,
+        analyst_report: Optional[TaskIntelligenceReport] = None,
+        sme_advisory: Optional[Dict[str, str]] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> ExecutionResult:
+        """Run execution using ReAct loop."""
+        react_instruction = (
+            "You are the Executor. Use Tree of Thoughts: generate multiple approaches, "
+            "evaluate each for completeness/quality/efficiency/maintainability/feasibility, "
+            "select the best, and implement the solution. Use tools to read context, write "
+            "files, run commands, and validate output. For code tasks: write clean, secure, "
+            "tested code. For documents: write clear, structured content. Return your "
+            "complete solution."
+        )
+        system_prompt = f"{self.system_prompt}\n\n{react_instruction}"
+
+        approach_info = ""
+        if analyst_report:
+            approach_info = f"\n\nAnalyst Report:\n{analyst_report.model_dump_json()}"
+
+        sme_info = ""
+        if sme_advisory:
+            sme_info = "\n\nSME Advisory:\n" + json.dumps(sme_advisory, default=str)
+
+        context_info = ""
+        if context:
+            context_info = "\n\nContext:\n" + json.dumps(context, default=str)
+
+        task_input = (
+            f"Execute this task:\n\n{task}\n\n"
+            f"Approach: {approach_info or 'Choose the best approach'}"
+            f"{sme_info}{context_info}"
+        )
+
+        loop = ReactLoop(
+            agent_name="executor",
+            system_prompt=system_prompt,
+            allowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Skill"],
+            output_schema=None,
+            model=self.model,
+            max_turns=self.max_turns,
+        )
+
+        result = loop.run(task_input)
+
+        if result and result.get("status") == "success" and "output" in result:
+            return ExecutionResult(
+                approach_name="react",
+                status="success",
+                output=result["output"],
+            )
+
+        # Fallback to procedural logic
+        self.logger.warning("react_fallback", reason="ReAct loop did not succeed, falling back to local mode")
+        return self.execute(task, analyst_report, sme_advisory, context, mode="local")
 
     # ========================================================================
     # Tree of Thoughts Methods

@@ -5,6 +5,7 @@ The single point of entry for all user requests and coordinator
 of all subagents in the Multi-Agent Reasoning System.
 """
 
+import json
 import os
 import time
 from typing import Optional, Dict, Any, List
@@ -50,6 +51,7 @@ from src.core.sdk_integration import (
     AGENT_ALLOWED_TOOLS,
     PermissionMode,
 )
+from src.core.react import ReactLoop
 from src.schemas.analyst import TaskIntelligenceReport
 from src.session import (
     SessionPersistence,
@@ -928,19 +930,22 @@ class OrchestratorAgent:
         model: str = None,
     ) -> Dict[str, Any]:
         """
-        Spawn a subagent using the Claude Agent SDK.
+        Spawn a subagent using the Claude Agent SDK or ReAct loop.
 
-        Uses ClaudeAgentOptions for configuration with:
-        - Per-agent model selection
-        - Least-privilege allowedTools
-        - JSON Schema outputFormat from Pydantic models
-        - setting_sources for skill auto-discovery
-        - Retry logic (1x non-critical, 2x critical)
+        When enable_react is True (default), uses ReactLoop which:
+        - Sends the system prompt + task to the LLM
+        - LLM reasons and calls tools (Read, Write, Bash, etc.)
+        - Tool results fed back as observations
+        - Continues until LLM produces final answer
+        - Validates output against Pydantic schema
+
+        When enable_react is False, uses the original SDK spawn path.
         """
         self.logger.info("orchestrator.spawning_agent",
                          agent=agent_name,
                          model=model or "default",
-                         role=agent_role or "operational")
+                         role=agent_role or "operational",
+                         react_mode=self.settings.enable_react)
         emit_agent_started(agent_name, "spawning", session.session_id)
 
         # Load system prompt
@@ -958,26 +963,31 @@ class OrchestratorAgent:
                 "Use the Skill tool to invoke them when needed."
             )
 
-        # Build SDK-compatible agent options
-        options = build_agent_options(
-            agent_name=normalized_name,
-            system_prompt=system_prompt,
-            agent_role=agent_role,
-            model_override=model,
-            max_turns_override=self._get_max_turns(agent_name),
-            extra_system_prompt=skill_instructions if skill_instructions else None,
-        )
+        if skill_instructions:
+            system_prompt = system_prompt + skill_instructions
 
-        # Determine retry count based on criticality
-        critical_agents = {"verifier", "executor", "domain_council_chair", "quality_arbiter"}
-        max_retries = 2 if normalized_name in critical_agents else 1
-
-        # Execute via SDK
-        result = spawn_subagent(
-            options=options,
-            input_data=str(input_data) if input_data else "",
-            max_retries=max_retries,
-        )
+        # ---- ReAct mode: use ReactLoop for LLM-driven reasoning ----
+        if self.settings.enable_react:
+            result = self._spawn_agent_react(
+                session=session,
+                agent_name=agent_name,
+                normalized_name=normalized_name,
+                system_prompt=system_prompt,
+                agent_role=agent_role,
+                input_data=input_data,
+                model=model,
+            )
+        else:
+            # ---- Legacy mode: use SDK spawn ----
+            result = self._spawn_agent_sdk(
+                session=session,
+                agent_name=agent_name,
+                normalized_name=normalized_name,
+                system_prompt=system_prompt,
+                agent_role=agent_role,
+                input_data=input_data,
+                model=model,
+            )
 
         # Track cost
         cost = result.get("cost_usd", 0.0)
@@ -1004,6 +1014,117 @@ class OrchestratorAgent:
         if isinstance(output, dict):
             result["escalation_needed"] = output.get("escalation_needed", False)
             result["escalation_reason"] = output.get("escalation_reason", "")
+
+        return result
+
+    def _spawn_agent_react(
+        self,
+        session: SessionState,
+        agent_name: str,
+        normalized_name: str,
+        system_prompt: str,
+        agent_role: str = "",
+        input_data: Any = None,
+        model: str = None,
+    ) -> Dict[str, Any]:
+        """
+        Spawn an agent using the ReAct loop (LLM-driven reasoning + tool use).
+
+        The ReactLoop handles:
+        - Claude Agent SDK (preferred) or Anthropic API fallback
+        - Tool execution (Read, Write, Bash, Glob, Grep, WebSearch, etc.)
+        - Structured output validation against Pydantic schemas
+        - Budget tracking and iteration limits
+        """
+        from src.core.sdk_integration import AGENT_ALLOWED_TOOLS, _get_output_schema
+
+        # Get allowed tools for this agent
+        tool_key = normalized_name
+        if agent_role:
+            role_key = f"{normalized_name}_{agent_role}"
+            if role_key in AGENT_ALLOWED_TOOLS:
+                tool_key = role_key
+        allowed_tools = list(AGENT_ALLOWED_TOOLS.get(tool_key, []))
+
+        # Get output schema (Pydantic model) for structured output
+        output_schema = None
+        schema_map = {
+            "analyst": "TaskIntelligenceReport",
+            "planner": "ExecutionPlan",
+            "clarifier": "ClarificationRequest",
+            "researcher": "EvidenceBrief",
+            "code_reviewer": "CodeReviewReport",
+            "verifier": "VerificationReport",
+            "critic": "CritiqueReport",
+            "reviewer": "ReviewVerdict",
+            "council_chair": "SMESelectionReport",
+            "quality_arbiter": "QualityVerdict",
+            "ethics_advisor": "EthicsReview",
+        }
+        schema_name = schema_map.get(
+            f"{normalized_name}_{agent_role}" if agent_role else normalized_name
+        )
+        if schema_name:
+            try:
+                import src.schemas as schemas
+                output_schema = getattr(schemas, schema_name, None)
+            except Exception:
+                pass
+
+        # Determine remaining budget
+        remaining_budget = session.max_budget_usd - session.total_cost_usd
+        max_budget = max(0.1, remaining_budget) if remaining_budget > 0 else None
+
+        # Create and run ReactLoop
+        react_loop = ReactLoop(
+            agent_name=normalized_name,
+            system_prompt=system_prompt,
+            allowed_tools=allowed_tools,
+            output_schema=output_schema,
+            model=model or self._get_model_for_agent(agent_name),
+            max_turns=self._get_max_turns(agent_name),
+            max_budget_usd=max_budget,
+        )
+
+        result = react_loop.run(
+            task_input=str(input_data) if input_data else "",
+            session_id=session.session_id,
+        )
+
+        return result
+
+    def _spawn_agent_sdk(
+        self,
+        session: SessionState,
+        agent_name: str,
+        normalized_name: str,
+        system_prompt: str,
+        agent_role: str = "",
+        input_data: Any = None,
+        model: str = None,
+    ) -> Dict[str, Any]:
+        """
+        Spawn an agent using the original SDK path (legacy mode).
+        """
+        # Build SDK-compatible agent options
+        options = build_agent_options(
+            agent_name=normalized_name,
+            system_prompt=system_prompt,
+            agent_role=agent_role,
+            model_override=model,
+            max_turns_override=self._get_max_turns(agent_name),
+        )
+
+        # Determine retry count based on criticality
+        critical_agents = {"verifier", "executor", "domain_council_chair", "quality_arbiter"}
+        max_retries = 2 if normalized_name in critical_agents else 1
+
+        # Execute via SDK
+        result = spawn_subagent(
+            options=options,
+            input_data=str(input_data) if input_data else "",
+            max_retries=max_retries,
+        )
 
         return result
 

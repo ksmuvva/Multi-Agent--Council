@@ -5,9 +5,12 @@ Serves as the final quality gate before output reaches the user.
 Implements the verdict matrix logic and coordinates with Quality Arbiter.
 """
 
+import json
 import re
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+
+from src.core.react import ReactLoop
 
 from src.schemas.reviewer import (
     ReviewVerdict,
@@ -107,6 +110,7 @@ class ReviewerAgent:
         critic_report: Optional[Dict[str, Any]] = None,
         code_review_report: Optional[Dict[str, Any]] = None,
         quality_standard: Optional[Dict[str, Any]] = None,
+        mode: str = "react",
     ) -> ReviewVerdict:
         """
         Perform final quality review on the output.
@@ -118,6 +122,7 @@ class ReviewerAgent:
             critic_report: Optional Critic report
             code_review_report: Optional Code Reviewer report
             quality_standard: Optional QualityStandard from Council (Tier 3-4)
+            mode: Execution mode - "react" for ReAct loop, "local" for procedural
 
         Returns:
             ReviewVerdict with pass/fail decision and revision instructions
@@ -133,6 +138,8 @@ class ReviewerAgent:
         emit_agent_started("reviewer", phase="review")
 
         try:
+            if mode == "react":
+                return self._react_review(output, context, verifier_report, critic_report, code_review_report, quality_standard)
             # Step 1: Run all quality gate checks
             quality_gates = self._run_quality_gates(
                 output, context, verifier_report, critic_report, code_review_report
@@ -856,6 +863,66 @@ class ReviewerAgent:
             summary += f" Primary reason: {primary_reason}"
 
         return summary
+
+    def _react_review(
+        self,
+        output: str,
+        context: ReviewContext,
+        verifier_report: Optional[Dict[str, Any]],
+        critic_report: Optional[Dict[str, Any]],
+        code_review_report: Optional[Dict[str, Any]],
+        quality_standard: Optional[Dict[str, Any]],
+    ) -> ReviewVerdict:
+        """Run review via ReAct loop."""
+        react_system_prompt = (
+            self.system_prompt
+            + "\n\nYou are the Reviewer (Quality Gate). Evaluate output against 6 quality gates: "
+            "completeness (all requirements addressed), consistency (no contradictions), "
+            "verifier sign-off (reliability >= 0.7), critic findings (no critical issues), "
+            "readability (clear structure), code review (if applicable). Apply verdict matrix: "
+            "(Verifier PASS + Critic PASS -> PROCEED), (Verifier PASS + Critic FAIL -> EXECUTOR_REVISE), "
+            "(Verifier FAIL + Critic PASS -> RESEARCHER_REVERIFY), "
+            "(Verifier FAIL + Critic FAIL -> FULL_REGENERATION). Return a ReviewVerdict JSON."
+        )
+
+        context_dict = {
+            "original_request": context.original_request,
+            "agent_outputs": context.agent_outputs,
+            "revision_count": context.revision_count,
+            "max_revisions": context.max_revisions,
+            "tier_level": context.tier_level,
+            "is_code_output": context.is_code_output,
+        }
+
+        task_input = f"Review this output:\n\n{output}\n\nContext:\n{json.dumps(context_dict, default=str)}"
+        if verifier_report:
+            task_input += f"\n\nVerifier Report:\n{json.dumps(verifier_report, default=str)}"
+        if critic_report:
+            task_input += f"\n\nCritic Report:\n{json.dumps(critic_report, default=str)}"
+        if code_review_report:
+            task_input += f"\n\nCode Review Report:\n{json.dumps(code_review_report, default=str)}"
+        if quality_standard:
+            task_input += f"\n\nQuality Standard:\n{json.dumps(quality_standard, default=str)}"
+
+        loop = ReactLoop(
+            agent_name="reviewer",
+            system_prompt=react_system_prompt,
+            allowed_tools=["Read", "Glob", "Grep"],
+            output_schema=ReviewVerdict,
+            model=self.model,
+            max_turns=self.max_turns,
+        )
+
+        try:
+            result = loop.run(task_input)
+            output_obj = result.get("output")
+            if isinstance(output_obj, ReviewVerdict):
+                return output_obj
+            self.logger.warning("ReactLoop did not return a parsed ReviewVerdict, falling back to local mode")
+        except Exception as e:
+            self.logger.warning("ReactLoop failed, falling back to local mode", error=str(e))
+
+        return self.review(output, context, verifier_report, critic_report, code_review_report, quality_standard, mode="local")
 
     def _load_system_prompt(self) -> str:
         """Load the system prompt from file."""

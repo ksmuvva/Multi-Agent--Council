@@ -7,10 +7,13 @@ Three governance agents for Tier 3-4 tasks:
 - Ethics & Safety Advisor: Bias, PII, compliance, safety review
 """
 
+import json
 import re
 from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
 from enum import Enum
+
+from src.core.react import ReactLoop
 
 from src.utils.logging import get_agent_logger, AgentLogContext
 from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
@@ -123,6 +126,7 @@ class CouncilChairAgent:
         analyst_report: Optional[Dict[str, Any]] = None,
         tier_level: int = 3,
         max_smes: int = 3,
+        mode: str = "react",
     ) -> SMESelectionReport:
         """
         Select SME personas for the task.
@@ -132,6 +136,7 @@ class CouncilChairAgent:
             analyst_report: Optional Analyst report for additional context
             tier_level: Current tier level (3 or 4)
             max_smes: Maximum SMEs to select
+            mode: Execution mode - "react" for ReAct loop, "local" for procedural
 
         Returns:
             SMESelectionReport with selected SMEs and collaboration plan
@@ -143,6 +148,9 @@ class CouncilChairAgent:
             task_preview=task_description[:100],
         )
         emit_agent_started("council", phase="sme_selection")
+
+        if mode == "react":
+            return self._react_select_smes(task_description, analyst_report, tier_level, max_smes)
 
         # Step 1: Identify required domains
         required_domains = self._identify_required_domains(
@@ -429,6 +437,46 @@ class CouncilChairAgent:
             return True
 
         return False
+
+    def _react_select_smes(
+        self,
+        task_description: str,
+        analyst_report: Optional[Dict[str, Any]],
+        tier_level: int,
+        max_smes: int,
+    ) -> SMESelectionReport:
+        """Run SME selection via ReAct loop."""
+        react_system_prompt = (
+            self.system_prompt
+            + "\n\nYou are the Domain Council Chair. Analyze the task to identify required "
+            "domains (IAM, Cloud, Security, Data, AI/ML, Test, BA, Tech Writer, DevOps, Frontend). "
+            "Select appropriate SME personas, determine interaction modes (ADVISOR, CO_EXECUTOR, "
+            "DEBATER), and create a collaboration plan. Return an SMESelectionReport JSON."
+        )
+
+        task_input = f"Select SMEs for this task:\n\n{task_description}\nTier: {tier_level}"
+        if analyst_report:
+            task_input += f"\n\nAnalyst Report:\n{json.dumps(analyst_report, default=str)}"
+
+        loop = ReactLoop(
+            agent_name="council_chair",
+            system_prompt=react_system_prompt,
+            allowed_tools=[],
+            output_schema=SMESelectionReport,
+            model=self.model,
+            max_turns=self.max_turns,
+        )
+
+        try:
+            result = loop.run(task_input)
+            output = result.get("output")
+            if isinstance(output, SMESelectionReport):
+                return output
+            self.logger.warning("ReactLoop did not return a parsed SMESelectionReport, falling back to local mode")
+        except Exception as e:
+            self.logger.warning("ReactLoop failed, falling back to local mode", error=str(e))
+
+        return self.select_smes(task_description, analyst_report, tier_level, max_smes, mode="local")
 
     def _load_system_prompt(self) -> str:
         """Load the system prompt from file."""

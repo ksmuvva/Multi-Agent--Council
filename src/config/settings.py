@@ -423,6 +423,7 @@ class Settings(BaseSettings):
     enable_debate: bool = True
     enable_ensemble: bool = True
     enable_cost_tracking: bool = True
+    enable_react: bool = True  # Use LLM-driven ReAct loops instead of procedural logic
 
     # =========================================================================
     # Development Settings

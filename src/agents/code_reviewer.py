@@ -5,11 +5,14 @@ Performs comprehensive code review across five dimensions:
 security, performance, style, error handling, and test coverage.
 """
 
+import json
 import re
 import ast
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from pathlib import Path
+
+from src.core.react import ReactLoop
 
 from src.schemas.code_reviewer import (
     CodeReviewReport,
@@ -120,6 +123,7 @@ class CodeReviewerAgent:
         file_path: str = "solution.py",
         language: str = "python",
         context: Optional[Dict[str, Any]] = None,
+        mode: str = "react",
     ) -> CodeReviewReport:
         """
         Perform comprehensive code review.
@@ -129,6 +133,7 @@ class CodeReviewerAgent:
             file_path: Path to the file being reviewed
             language: Programming language
             context: Additional context (task, requirements, etc.)
+            mode: Execution mode - "react" for ReAct loop, "local" for procedural
 
         Returns:
             CodeReviewReport with all findings
@@ -142,6 +147,8 @@ class CodeReviewerAgent:
         emit_agent_started("code_reviewer", phase="review")
 
         try:
+            if mode == "react":
+                return self._react_review(code, file_path, language, context)
             # Analyze code context
             code_context = self._analyze_code_context(code, file_path, language)
 
@@ -630,6 +637,47 @@ class CodeReviewerAgent:
             recommendations.append("No issues found - code is ready to merge")
 
         return recommendations
+
+    def _react_review(
+        self,
+        code: str,
+        file_path: str,
+        language: str,
+        context: Optional[Dict[str, Any]],
+    ) -> CodeReviewReport:
+        """Run code review via ReAct loop."""
+        react_system_prompt = (
+            self.system_prompt
+            + "\n\nYou are the Code Reviewer. Analyze code for: security vulnerabilities "
+            "(SQL injection, XSS, hardcoded secrets), performance issues (N+1 queries, "
+            "nested loops), style compliance (PEP8, naming), error handling completeness, "
+            "and test coverage. Use tools to read related files and run linters. "
+            "Return a CodeReviewReport JSON."
+        )
+
+        task_input = f"Review this code:\n\nFile: {file_path}\nLanguage: {language}\n\n```{language}\n{code}\n```"
+        if context:
+            task_input += f"\n\nAdditional context:\n{json.dumps(context, default=str)}"
+
+        loop = ReactLoop(
+            agent_name="code_reviewer",
+            system_prompt=react_system_prompt,
+            allowed_tools=["Read", "Glob", "Grep", "Bash"],
+            output_schema=CodeReviewReport,
+            model=self.model,
+            max_turns=self.max_turns,
+        )
+
+        try:
+            result = loop.run(task_input)
+            output = result.get("output")
+            if isinstance(output, CodeReviewReport):
+                return output
+            self.logger.warning("ReactLoop did not return a parsed CodeReviewReport, falling back to local mode")
+        except Exception as e:
+            self.logger.warning("ReactLoop failed, falling back to local mode", error=str(e))
+
+        return self.review(code, file_path, language, context, mode="local")
 
     def _load_system_prompt(self) -> str:
         """Load the system prompt from file."""
