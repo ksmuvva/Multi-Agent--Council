@@ -5,11 +5,14 @@ Gathers evidence from external sources using WebSearch and WebFetch,
 producing EvidenceBrief with confidence levels and source reliability.
 """
 
+import json
 import re
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
 from urllib.parse import urlparse
+
+from src.core.react import ReactLoop
 
 from src.schemas.researcher import (
     EvidenceBrief,
@@ -113,6 +116,7 @@ class ResearcherAgent:
         specific_urls: Optional[List[str]] = None,
         sme_inputs: Optional[Dict[str, str]] = None,
         context: Optional[Dict[str, Any]] = None,
+        mode: str = "react",
     ) -> EvidenceBrief:
         """
         Research a topic and produce an EvidenceBrief.
@@ -131,6 +135,9 @@ class ResearcherAgent:
         emit_agent_started("researcher", phase="research")
 
         try:
+            if mode == "react":
+                return self._react_research(topic, queries, specific_urls, sme_inputs, context)
+
             # Generate search queries if not provided
             if not queries:
                 queries = self._generate_search_queries(topic)
@@ -213,6 +220,54 @@ class ResearcherAgent:
             self.logger.error("research_failed", topic=topic, error=str(e), exc_info=True)
             emit_error("researcher", error_message=str(e), error_type=type(e).__name__)
             raise
+
+    # ========================================================================
+    # ReAct Mode
+    # ========================================================================
+
+    def _react_research(
+        self,
+        topic: str,
+        queries: Optional[List[str]] = None,
+        specific_urls: Optional[List[str]] = None,
+        sme_inputs: Optional[Dict[str, str]] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> EvidenceBrief:
+        """Run research using ReAct loop."""
+        react_instruction = (
+            "You are the Researcher. Search for evidence using WebSearch, fetch content "
+            "from authoritative sources with WebFetch, cross-reference claims, identify "
+            "conflicts and gaps. Rate source reliability and finding confidence. "
+            "Return an EvidenceBrief JSON."
+        )
+        system_prompt = f"{self.system_prompt}\n\n{react_instruction}"
+
+        task_input = f"Research topic: {topic}"
+        if queries:
+            task_input += f"\n\nSearch queries:\n{json.dumps(queries)}"
+        if specific_urls:
+            task_input += f"\n\nSpecific URLs to check:\n{json.dumps(specific_urls)}"
+        if sme_inputs:
+            task_input += f"\n\nSME inputs:\n{json.dumps(sme_inputs)}"
+        if context:
+            task_input += f"\n\nContext:\n{json.dumps(context, default=str)}"
+
+        loop = ReactLoop(
+            agent_name="researcher",
+            system_prompt=system_prompt,
+            allowed_tools=["WebSearch", "WebFetch", "Read"],
+            output_schema=EvidenceBrief,
+            model=self.model,
+            max_turns=self.max_turns,
+        )
+
+        result = loop.run(task_input)
+
+        if result and "output" in result and isinstance(result["output"], EvidenceBrief):
+            return result["output"]
+
+        # Fallback to procedural logic
+        return self.research(topic, queries, specific_urls, sme_inputs, context, mode="local")
 
     # ========================================================================
     # Search Methods

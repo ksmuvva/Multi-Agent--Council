@@ -5,10 +5,13 @@ Attacks proposed solutions through five vectors:
 logic, completeness, quality, contradiction, and red-team.
 """
 
+import json
 import re
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
+
+from src.core.react import ReactLoop
 
 from src.schemas.critic import (
     CritiqueReport,
@@ -84,6 +87,7 @@ class CriticAgent:
         domain_attacks: Optional[List[str]] = None,
         sme_inputs: Optional[Dict[str, str]] = None,
         context: Optional[Dict[str, Any]] = None,
+        mode: str = "react",
     ) -> CritiqueReport:
         """
         Critique a proposed solution through five attack vectors.
@@ -108,6 +112,9 @@ class CriticAgent:
         emit_agent_started("critic", phase="critique")
 
         try:
+            if mode == "react":
+                return self._react_critique(solution, original_request, domain_attacks, sme_inputs, context)
+
             # Analyze the argument structure
             argument_analysis = self._analyze_argument_structure(solution)
 
@@ -226,6 +233,53 @@ class CriticAgent:
             )
             emit_error("critic", error_message=str(e), error_type=type(e).__name__)
             raise
+
+    # ========================================================================
+    # ReAct Mode
+    # ========================================================================
+
+    def _react_critique(
+        self,
+        solution: str,
+        original_request: str,
+        domain_attacks: Optional[List[str]] = None,
+        sme_inputs: Optional[Dict[str, str]] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> CritiqueReport:
+        """Run critique using ReAct loop."""
+        react_instruction = (
+            "You are the Critic (Devil's Advocate). Apply 5 attack vectors to the solution: "
+            "Logic (check validity, find fallacies), Completeness (find missing elements), "
+            "Quality (assess strengths/weaknesses), Contradiction Scan (find inconsistencies), "
+            "Red Team (adversarial perspective, attack surfaces, failure modes). "
+            "Return a CritiqueReport JSON."
+        )
+        system_prompt = f"{self.system_prompt}\n\n{react_instruction}"
+
+        task_input = f"Critique this solution:\n\n{solution}\n\nOriginal request: {original_request}"
+        if domain_attacks:
+            task_input += f"\n\nDomain-specific attacks:\n{json.dumps(domain_attacks)}"
+        if sme_inputs:
+            task_input += f"\n\nSME inputs:\n{json.dumps(sme_inputs)}"
+        if context:
+            task_input += f"\n\nContext:\n{json.dumps(context, default=str)}"
+
+        loop = ReactLoop(
+            agent_name="critic",
+            system_prompt=system_prompt,
+            allowed_tools=["Read", "Grep"],
+            output_schema=CritiqueReport,
+            model=self.model,
+            max_turns=self.max_turns,
+        )
+
+        result = loop.run(task_input)
+
+        if result and "output" in result and isinstance(result["output"], CritiqueReport):
+            return result["output"]
+
+        # Fallback to procedural logic
+        return self.critique(solution, original_request, domain_attacks, sme_inputs, context, mode="local")
 
     # ========================================================================
     # Attack Vectors

@@ -5,9 +5,12 @@ Decomposes user requests into structured requirements using
 the TaskIntelligenceReport schema.
 """
 
+import json
 import re
 from typing import List, Dict, Any, Optional
 from pathlib import Path
+
+from src.core.react import ReactLoop
 
 from src.schemas.analyst import (
     TaskIntelligenceReport,
@@ -78,6 +81,7 @@ class AnalystAgent:
         user_request: str,
         context: Optional[Dict[str, Any]] = None,
         file_attachments: Optional[List[str]] = None,
+        mode: str = "react",
     ) -> TaskIntelligenceReport:
         """
         Analyze a user request and produce a TaskIntelligenceReport.
@@ -99,6 +103,9 @@ class AnalystAgent:
         emit_agent_started("analyst", phase="analysis")
 
         try:
+            if mode == "react":
+                return self._react_analyze(user_request, context, file_attachments)
+
             # Enhance request with file info if provided
             enhanced_request = self._prepare_request(user_request, file_attachments)
 
@@ -170,6 +177,50 @@ class AnalystAgent:
             self.logger.error("analyst_failed", error=str(e), exc_info=True)
             emit_error("analyst", error_message=str(e), error_type=type(e).__name__)
             raise
+
+    # ========================================================================
+    # ReAct Mode
+    # ========================================================================
+
+    def _react_analyze(
+        self,
+        user_request: str,
+        context: Optional[Dict[str, Any]] = None,
+        file_attachments: Optional[List[str]] = None,
+    ) -> TaskIntelligenceReport:
+        """Run analysis using ReAct loop."""
+        react_instruction = (
+            "You are the Task Analyst. Analyze the user's request. "
+            "Detect the modality (code/image/document/data/text), infer intent, "
+            "decompose into sub-tasks, identify missing information by severity, "
+            "suggest complexity tier (1-4), and recommend an approach. "
+            "If files are referenced, use Read/Glob/Grep to inspect them. "
+            "Return a TaskIntelligenceReport JSON."
+        )
+        system_prompt = f"{self.system_prompt}\n\n{react_instruction}"
+
+        task_input = f"Analyze this user request:\n\n{user_request}"
+        if context:
+            task_input += f"\n\nContext:\n{json.dumps(context, default=str)}"
+        if file_attachments:
+            task_input += f"\n\nFile attachments:\n{json.dumps(file_attachments)}"
+
+        loop = ReactLoop(
+            agent_name="analyst",
+            system_prompt=system_prompt,
+            allowed_tools=["Read", "Glob", "Grep"],
+            output_schema=TaskIntelligenceReport,
+            model=self.model,
+            max_turns=self.max_turns,
+        )
+
+        result = loop.run(task_input)
+
+        if result and "output" in result and isinstance(result["output"], TaskIntelligenceReport):
+            return result["output"]
+
+        # Fallback to procedural logic
+        return self.analyze(user_request, context, file_attachments, mode="local")
 
     # ========================================================================
     # Analysis Methods

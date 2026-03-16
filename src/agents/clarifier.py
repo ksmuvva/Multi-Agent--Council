@@ -5,8 +5,11 @@ Formulates precise questions when requirements are missing,
 ranked by impact on output quality.
 """
 
+import json
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+
+from src.core.react import ReactLoop
 
 from src.schemas.clarifier import (
     ClarificationRequest,
@@ -62,6 +65,7 @@ class ClarifierAgent:
         analyst_report: TaskIntelligenceReport,
         context: Optional[Dict[str, Any]] = None,
         max_questions: int = 5,
+        mode: str = "react",
     ) -> ClarificationRequest:
         """
         Formulate clarification questions for missing requirements.
@@ -81,6 +85,9 @@ class ClarifierAgent:
         emit_agent_started("clarifier", phase="clarification")
 
         try:
+            if mode == "react":
+                return self._react_formulate_questions(analyst_report, context, max_questions)
+
             if not analyst_report.missing_info:
                 # No missing info - return empty request
                 self.logger.info(
@@ -150,6 +157,46 @@ class ClarifierAgent:
             self.logger.error("clarifier_failed", error=str(e), exc_info=True)
             emit_error("clarifier", error_message=str(e), error_type=type(e).__name__)
             raise
+
+    # ========================================================================
+    # ReAct Mode
+    # ========================================================================
+
+    def _react_formulate_questions(
+        self,
+        analyst_report: TaskIntelligenceReport,
+        context: Optional[Dict[str, Any]] = None,
+        max_questions: int = 5,
+    ) -> ClarificationRequest:
+        """Run clarification using ReAct loop."""
+        react_instruction = (
+            "You are the Clarifier. Given an analyst report with missing information, "
+            "formulate clarifying questions ranked by impact. Suggest defaults and assess "
+            "quality if defaults are used. Return a ClarificationRequest JSON."
+        )
+        system_prompt = f"{self.system_prompt}\n\n{react_instruction}"
+
+        task_input = f"Analyst report:\n{analyst_report.model_dump_json()}"
+        if context:
+            task_input += f"\n\nContext:\n{json.dumps(context, default=str)}"
+        task_input += f"\n\nMax questions: {max_questions}"
+
+        loop = ReactLoop(
+            agent_name="clarifier",
+            system_prompt=system_prompt,
+            allowed_tools=[],
+            output_schema=ClarificationRequest,
+            model=self.model,
+            max_turns=self.max_turns,
+        )
+
+        result = loop.run(task_input)
+
+        if result and "output" in result and isinstance(result["output"], ClarificationRequest):
+            return result["output"]
+
+        # Fallback to procedural logic
+        return self.formulate_questions(analyst_report, context, max_questions, mode="local")
 
     # ========================================================================
     # Question Generation Methods

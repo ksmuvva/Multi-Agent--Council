@@ -5,6 +5,7 @@ Extracts and preserves knowledge from completed tasks for future reuse.
 Writes knowledge files with YAML frontmatter to docs/knowledge/.
 """
 
+import json
 import re
 import os
 from pathlib import Path
@@ -12,6 +13,8 @@ from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+
+from src.core.react import ReactLoop
 
 from src.utils.logging import get_agent_logger, AgentLogContext
 from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
@@ -147,6 +150,7 @@ class MemoryCuratorAgent:
         agent_outputs: Dict[str, Any],
         final_output: str,
         session_id: Optional[str] = None,
+        mode: str = "react",
     ) -> ExtractionResult:
         """
         Extract knowledge from completed task and preserve it.
@@ -157,6 +161,7 @@ class MemoryCuratorAgent:
             agent_outputs: Outputs from all agents involved
             final_output: The final output delivered to user
             session_id: Optional session ID for tracking
+            mode: Execution mode - "react" for ReAct loop, "local" for procedural
 
         Returns:
             ExtractionResult with all knowledge entries and metadata
@@ -169,6 +174,11 @@ class MemoryCuratorAgent:
             agents_involved=execution_context.get("agents_used", []),
         )
         emit_agent_started("memory_curator", phase="curation")
+
+        if mode == "react":
+            return self._react_extract_and_preserve(
+                task_description, execution_context, agent_outputs, final_output, session_id
+            )
 
         # Step 1: Extract key decisions
         key_decisions = self._extract_key_decisions(
@@ -1095,6 +1105,56 @@ class MemoryCuratorAgent:
         # Sort by date (newest first)
         entries.sort(key=lambda x: x.get("date", ""), reverse=True)
         return entries
+
+    def _react_extract_and_preserve(
+        self,
+        task_description: str,
+        execution_context: Dict[str, Any],
+        agent_outputs: Dict[str, Any],
+        final_output: str,
+        session_id: Optional[str],
+    ) -> ExtractionResult:
+        """Run knowledge extraction via ReAct loop."""
+        react_system_prompt = (
+            self.system_prompt
+            + "\n\nYou are the Memory Curator. Extract key decisions, identify patterns, "
+            "capture domain insights, and document lessons learned from the session. "
+            "Write knowledge files to docs/knowledge/ directory using YAML frontmatter. "
+            "Return an ExtractionResult JSON."
+        )
+
+        task_input = (
+            f"Extract knowledge from this session:\n\nTask: {task_description}"
+            f"\n\nFinal output: {final_output}"
+        )
+        if agent_outputs:
+            task_input += f"\n\nAgent outputs:\n{json.dumps(agent_outputs, default=str)}"
+        if execution_context:
+            task_input += f"\n\nExecution context:\n{json.dumps(execution_context, default=str)}"
+        if session_id:
+            task_input += f"\n\nSession ID: {session_id}"
+
+        loop = ReactLoop(
+            agent_name="memory_curator",
+            system_prompt=react_system_prompt,
+            allowed_tools=["Read", "Write", "Glob"],
+            output_schema=ExtractionResult,
+            model=self.model,
+            max_turns=self.max_turns,
+        )
+
+        try:
+            result = loop.run(task_input)
+            output = result.get("output")
+            if isinstance(output, ExtractionResult):
+                return output
+            self.logger.warning("ReactLoop did not return a parsed ExtractionResult, falling back to local mode")
+        except Exception as e:
+            self.logger.warning("ReactLoop failed, falling back to local mode", error=str(e))
+
+        return self.extract_and_preserve(
+            task_description, execution_context, agent_outputs, final_output, session_id, mode="local"
+        )
 
     def _load_system_prompt(self) -> str:
         """Load the system prompt from file."""

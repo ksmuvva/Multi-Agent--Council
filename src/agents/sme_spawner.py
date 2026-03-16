@@ -5,12 +5,15 @@ Creates and manages SME personas on-demand based on Council Chair selection.
 Implements three interaction modes: Advisor, Co-executor, Debater.
 """
 
+import json
 import os
 import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
 from enum import Enum
+
+from src.core.react import ReactLoop
 
 from src.utils.logging import get_agent_logger, AgentLogContext
 from src.utils.events import emit_agent_started, emit_agent_completed, emit_error
@@ -78,6 +81,8 @@ class SMESpawner:
         skills_dir: str = ".claude/skills",
         sme_templates_dir: str = "config/sme",
         model: str = "claude-3-5-sonnet-20241022",
+        system_prompt_path: str = "config/agents/sme_spawner/CLAUDE.md",
+        max_turns: int = 30,
     ):
         """
         Initialize the SME Spawner.
@@ -86,11 +91,16 @@ class SMESpawner:
             skills_dir: Directory containing SKILL.md files
             sme_templates_dir: Directory containing SME persona templates
             model: Default model for SME interactions
+            system_prompt_path: Path to system prompt file
+            max_turns: Maximum conversation turns
         """
         self.skills_dir = Path(skills_dir)
         self.sme_templates_dir = Path(sme_templates_dir)
         self.model = model
+        self.system_prompt_path = system_prompt_path
+        self.max_turns = max_turns
         self.logger = get_agent_logger("sme_spawner")
+        self.system_prompt = self._load_own_system_prompt()
         self.logger.info("SMESpawner initialized", model=model)
 
         # Ensure directories exist
@@ -102,6 +112,7 @@ class SMESpawner:
         selections: List[SMESelection],
         task_context: str,
         execution_phase: str = "execution",
+        mode: str = "react",
     ) -> SpawnResult:
         """
         Spawn SMEs based on Council Chair selection.
@@ -110,6 +121,7 @@ class SMESpawner:
             selections: SME selections from Council Chair
             task_context: Context of the current task
             execution_phase: Current execution phase
+            mode: Execution mode - "react" for ReAct loop, "local" for procedural
 
         Returns:
             SpawnResult with spawned SMEs
@@ -121,6 +133,9 @@ class SMESpawner:
             execution_phase=execution_phase,
         )
         emit_agent_started("sme_spawner", phase="spawn")
+
+        if mode == "react":
+            return self._react_spawn_from_selection(selections, task_context, execution_phase)
 
         spawned_smes = []
         interaction_modes = set()
@@ -1112,6 +1127,71 @@ This section outlines key considerations from a {spawned_sme.domain} perspective
             "Willing to consider alternative approaches if evidence supports them",
             "Recommend hybrid solution if pure approach has significant trade-offs",
         ]
+
+    # ========================================================================
+    # ReAct Mode
+    # ========================================================================
+
+    def _react_spawn_from_selection(
+        self,
+        selections: List[SMESelection],
+        task_context: str,
+        execution_phase: str,
+    ) -> SpawnResult:
+        """Run SME spawning via ReAct loop."""
+        react_system_prompt = (
+            self.system_prompt
+            + "\n\nYou are an SME Spawner. For each selected SME persona, load their system "
+            "prompt and skills, then execute their interaction mode (ADVISOR: domain analysis "
+            "+ corrections, CO_EXECUTOR: content generation, DEBATER: adversarial argumentation). "
+            "Return a SpawnResult JSON."
+        )
+
+        selections_data = [
+            {
+                "persona_name": s.persona_name,
+                "persona_domain": s.persona_domain,
+                "interaction_mode": s.interaction_mode.value if hasattr(s.interaction_mode, 'value') else str(s.interaction_mode),
+                "skills_to_load": s.skills_to_load,
+                "activation_phase": s.activation_phase,
+                "reasoning": s.reasoning,
+            }
+            for s in selections
+        ]
+
+        task_input = (
+            f"Spawn SMEs from selections:\n\n{json.dumps(selections_data, default=str)}"
+            f"\n\nTask Context:\n{task_context}"
+            f"\n\nExecution Phase: {execution_phase}"
+        )
+
+        loop = ReactLoop(
+            agent_name="sme_spawner",
+            system_prompt=react_system_prompt,
+            allowed_tools=["Read", "Glob", "Grep", "Skill"],
+            output_schema=SpawnResult,
+            model=self.model,
+            max_turns=self.max_turns,
+        )
+
+        try:
+            result = loop.run(task_input)
+            output = result.get("output")
+            if isinstance(output, SpawnResult):
+                return output
+            self.logger.warning("ReactLoop did not return a parsed SpawnResult, falling back to local mode")
+        except Exception as e:
+            self.logger.warning("ReactLoop failed, falling back to local mode", error=str(e))
+
+        return self.spawn_from_selection(selections, task_context, execution_phase, mode="local")
+
+    def _load_own_system_prompt(self) -> str:
+        """Load the system prompt from file for the spawner itself."""
+        try:
+            with open(self.system_prompt_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except FileNotFoundError:
+            return "You are the SME Spawner. Dynamically create and manage SME personas based on Council Chair selections."
 
     # ========================================================================
     # Utility Methods
