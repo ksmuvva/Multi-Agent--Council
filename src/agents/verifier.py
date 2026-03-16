@@ -115,15 +115,34 @@ class VerifierAgent:
         try:
             # Step 1: Extract claims
             extraction = self._extract_claims(content)
+            self.logger.info(
+                "claims_extracted",
+                total_claims=extraction.total_claims,
+                content_length=len(content),
+            )
 
             # Step 2: Verify each claim
             verified_claims = []
-            for claim in extraction.claims:
+            for i, claim in enumerate(extraction.claims):
+                self.logger.debug(
+                    "verifying_claim",
+                    claim_index=i + 1,
+                    total_claims=extraction.total_claims,
+                    claim_preview=claim[:80],
+                )
                 claim_verification = self._verify_claim(
                     claim,
                     content,
                     sources,
                     sme_verifications
+                )
+                self.logger.debug(
+                    "claim_verified",
+                    claim_index=i + 1,
+                    status=claim_verification.status.value,
+                    confidence=claim_verification.confidence,
+                    fabrication_risk=claim_verification.fabrication_risk.value,
+                    method=claim_verification.verification_method,
                 )
                 verified_claims.append(claim_verification)
 

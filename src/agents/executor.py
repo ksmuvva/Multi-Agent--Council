@@ -139,12 +139,30 @@ class ExecutorAgent:
 
             # Step 1: Decompose the problem
             sub_problems = self._decompose_problem(task, analyst_report)
+            self.logger.info(
+                "problem_decomposed",
+                sub_problem_count=len(sub_problems),
+                sub_problems=sub_problems,
+            )
 
             # Step 2: Generate approaches for each sub-problem
             approaches = self._generate_approaches(sub_problems, analyst_report)
+            self.logger.info(
+                "approaches_generated",
+                approach_count=len(approaches),
+                approach_names=[a.name for a in approaches],
+            )
 
             # Step 3: Score and rank approaches
             scored_approaches = self._score_approaches(approaches, task, analyst_report)
+            for approach in scored_approaches:
+                self.logger.debug(
+                    "approach_scored",
+                    approach=approach.name,
+                    score=approach.score,
+                    complexity=approach.complexity,
+                    estimated_time=approach.estimated_time,
+                )
 
             # Step 4: Select best approach
             selected_approach = self._select_best_approach(scored_approaches)
@@ -158,6 +176,12 @@ class ExecutorAgent:
 
             # Step 5: Incorporate SME advice if provided
             if sme_advisory:
+                self.logger.info(
+                    "sme_advice_integration",
+                    sme_count=len(sme_advisory),
+                    sme_names=list(sme_advisory.keys()),
+                    approach=selected_approach.name,
+                )
                 selected_approach = self._adapt_to_sme_advice(
                     selected_approach, sme_advisory
                 )

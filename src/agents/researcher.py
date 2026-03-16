@@ -134,14 +134,22 @@ class ResearcherAgent:
             # Generate search queries if not provided
             if not queries:
                 queries = self._generate_search_queries(topic)
+                self.logger.debug("queries_generated", queries=queries, count=len(queries))
 
             # Step 1: Search for information
+            self.logger.debug("search_phase_started", query_count=len(queries))
             search_results = self._perform_searches(queries)
 
             self.logger.info("sources_discovered", source_count=len(search_results), topic=topic)
 
             # Step 2: Fetch content from promising results
+            self.logger.debug("content_fetch_started", urls_to_fetch=len(search_results[:5]))
             fetched_content = self._fetch_content(search_results[:5])
+            self.logger.debug(
+                "content_fetch_completed",
+                fetched_count=len(fetched_content),
+                total_words=sum(c.word_count for c in fetched_content),
+            )
 
             # Step 3: Extract findings
             findings = self._extract_findings(fetched_content, topic)
@@ -150,13 +158,19 @@ class ResearcherAgent:
 
             # Step 4: Identify conflicts
             conflicts = self._identify_conflicts(findings)
+            if conflicts:
+                self.logger.info("conflicts_detected", conflict_count=len(conflicts), topic=topic)
 
             # Step 5: Identify gaps
             gaps = self._identify_knowledge_gaps(topic, findings, queries)
+            if gaps:
+                self.logger.info("knowledge_gaps_found", gap_count=len(gaps), gap_topics=[g.topic for g in gaps])
 
             # Step 6: Incorporate SME inputs if provided
             if sme_inputs:
+                self.logger.info("sme_integration_started", sme_count=len(sme_inputs), sme_names=list(sme_inputs.keys()))
                 findings = self._incorporate_sme_inputs(findings, sme_inputs)
+                self.logger.info("sme_integration_completed", total_findings=len(findings))
 
             # Step 7: Determine overall confidence
             overall_confidence = self._calculate_overall_confidence(findings)

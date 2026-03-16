@@ -9,6 +9,10 @@ from dataclasses import dataclass
 from typing import Any, List, Dict, Optional
 from enum import Enum
 
+from src.utils.logging import get_logger
+
+logger = get_logger("sme_registry")
+
 
 class InteractionMode(str, Enum):
     """SME interaction modes."""
@@ -307,7 +311,12 @@ def get_persona(persona_id: str) -> Optional[SMEPersona]:
     Returns:
         The SMEPersona if found, None otherwise
     """
-    return SME_REGISTRY.get(persona_id)
+    persona = SME_REGISTRY.get(persona_id)
+    if persona:
+        logger.debug("persona_found", persona_id=persona_id, domain=persona.domain)
+    else:
+        logger.warning("persona_not_found", persona_id=persona_id)
+    return persona
 
 
 def get_all_personas() -> Dict[str, SMEPersona]:
@@ -325,6 +334,7 @@ def find_personas_by_keywords(keywords: List[str]) -> List[SMEPersona]:
     Returns:
         List of matching SME personas, sorted by number of matches
     """
+    logger.info("keyword_search_started", keywords=keywords, keyword_count=len(keywords))
     matches = []
 
     for persona_id, persona in SME_REGISTRY.items():
@@ -341,11 +351,24 @@ def find_personas_by_keywords(keywords: List[str]) -> List[SMEPersona]:
 
         if match_count > 0:
             matches.append((persona, match_count, matched_keywords))
+            logger.debug(
+                "keyword_match",
+                persona_id=persona.persona_id,
+                match_count=match_count,
+                matched_keywords=matched_keywords,
+            )
 
     # Sort by match count (descending)
     matches.sort(key=lambda x: x[1], reverse=True)
 
-    return [persona for persona, _, _ in matches]
+    result = [persona for persona, _, _ in matches]
+    logger.info(
+        "keyword_search_completed",
+        keywords=keywords,
+        matches_found=len(result),
+        matched_personas=[p.persona_id for p in result],
+    )
+    return result
 
 
 def find_personas_by_domain(domain_keywords: List[str]) -> List[SMEPersona]:
@@ -391,9 +414,18 @@ def validate_interaction_mode(
     """
     persona = get_persona(persona_id)
     if persona is None:
+        logger.warning("validate_mode_persona_missing", persona_id=persona_id)
         return False
 
-    return interaction_mode in persona.interaction_modes
+    valid = interaction_mode in persona.interaction_modes
+    if not valid:
+        logger.warning(
+            "interaction_mode_invalid",
+            persona_id=persona_id,
+            requested_mode=interaction_mode.value,
+            allowed_modes=[m.value for m in persona.interaction_modes],
+        )
+    return valid
 
 
 def get_persona_for_display(persona_id: str) -> Optional[Dict[str, Any]]:
