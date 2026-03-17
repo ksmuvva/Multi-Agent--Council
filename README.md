@@ -147,18 +147,155 @@ ANTHROPIC_API_KEY=sk-ant-your-key-here
 
 📖 **See [docs/llm-configuration.md](docs/llm-configuration.md) for detailed configuration guide**
 
-### CLI Usage
+## 🚀 CLI Quick Start Guide
 
-```bash
-# Single query
-mas query "Write a Python hello world function"
+### Step 1: Navigate to the Repository
 
-# Interactive chat
-mas chat
+```powershell
+# PowerShell
+cd C:\Users\ksmuv\Downloads\UAT_MultiAgent_Reasoning\repo
 
-# With options
-mas query "Analyze this code" --file main.py --verbose --tier 3 --format markdown
+# Or from the parent directory
+cd .\repo
 ```
+
+### Step 2: Activate the Virtual Environment
+
+```powershell
+# Windows PowerShell
+.\venv\Scripts\Activate.ps1
+
+# Or use Python directly
+.\venv\Scripts\python.exe --version
+```
+
+### Step 3: Verify Installation
+
+```powershell
+# Check if dependencies are installed
+.\venv\Scripts\python.exe -c "import src; print('OK')"
+
+# Show CLI version
+.\venv\Scripts\python.exe -m src.cli.main version
+```
+
+### Step 4: Run CLI Commands
+
+#### **Basic Query**
+```powershell
+.\venv\Scripts\python.exe -m src.cli.main query "What is the capital of France?"
+```
+
+#### **Interactive Chat Mode**
+```powershell
+.\venv\Scripts\python.exe -m src.cli.main chat
+# Then type your questions and type 'exit' to quit
+```
+
+#### **Show System Status**
+```powershell
+.\venv\Scripts\python.exe -m src.cli.main status
+```
+
+#### **Analyze a Task**
+```powershell
+.\venv\Scripts\python.exe -m src.cli.main analyze "Write a Python REST API"
+```
+
+#### **List Available SME Personas**
+```powershell
+.\venv\Scripts\python.exe -m src.cli.main personas list
+```
+
+#### **List Ensemble Patterns**
+```powershell
+.\venv\Scripts\python.exe -m src.cli.main ensembles
+```
+
+### Step 5: Common Commands Reference
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `query` | Execute a query | `mas query "Your question"` |
+| `chat` | Interactive chat mode | `mas chat` |
+| `analyze` | Analyze task complexity | `mas analyze "Your task"` |
+| `status` | Show system status | `mas status` |
+| `ensembles` | List ensemble patterns | `mas ensembles` |
+| `personas` | Browse SME personas | `mas personas list` |
+| `tools` | List available tools | `mas tools` |
+| `sessions` | Manage sessions | `mas sessions list` |
+| `version` | Show version info | `mas version` |
+
+### Advanced Usage
+
+#### **Query with Specific Tier**
+```powershell
+.\venv\Scripts\python.exe -m src.cli.main query "Explain quantum computing" --tier 3
+```
+
+#### **Query with File Attachment**
+```powershell
+.\venv\Scripts\python.exe -m src.cli.main query "Analyze this code" --file main.py
+```
+
+#### **Save Output to File**
+```powershell
+.\venv\Scripts\python.exe -m src.cli.main query "What is AI?" --file output.txt
+```
+
+#### **Verbose Output**
+```powershell
+.\venv\Scripts\python.exe -m src.cli.main query "Your question" --verbose
+```
+
+## 📋 Troubleshooting
+
+### CLI Shows "Insufficient balance" Error
+
+**Error**: `余额不足或无可用资源包,请充值。` (Insufficient balance)
+
+**Solution**: Top up your GLM account at https://open.bigmodel.cn/
+
+### CLI Hangs or Freezes
+
+**Solution**: The CLI has been fixed! If you still see issues:
+1. Make sure you're using the latest code: `git pull`
+2. Check your API key in `.env`
+3. Try: `.\venv\Scripts\python.exe -m src.cli.main status`
+
+### Module Not Found Errors
+
+**Solution**: Reinstall dependencies
+```powershell
+.\venv\Scripts\python.exe -m pip install -e .
+```
+
+### Connection Errors
+
+**Solution**: Check your internet connection and API key validity
+
+### Unicode/Encoding Errors
+
+**Solution**: The CLI now handles Unicode correctly. If you see issues, update:
+```powershell
+git pull
+.\venv\Scripts\python.exe -m pip install -e .
+```
+
+## 🌐 Web Interface (Streamlit)
+
+```powershell
+# Start the Streamlit server
+.\venv\Scripts\python.exe -m streamlit run src/ui/app.py
+
+# Access at: http://localhost:8501
+```
+
+## 📚 Additional Resources
+
+- **[LLM Configuration Guide](docs/llm-configuration.md)** - Configure different LLM providers
+- **[Configuration Quick Reference](docs/config-quick-reference.md)** - All environment variables
+- **Session Management**: `.claude/sessions/` - View past conversation history
 
 ### Streamlit UI
 
