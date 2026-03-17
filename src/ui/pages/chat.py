@@ -7,6 +7,7 @@ agent activity visualization.
 """
 
 import time
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
@@ -14,6 +15,12 @@ from dataclasses import dataclass
 from enum import Enum
 
 import streamlit as st
+
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from src.agents.orchestrator import OrchestratorAgent
+from src.config import get_settings, get_api_key, get_provider
 
 
 # =============================================================================
@@ -55,9 +62,10 @@ class ChatMessage:
     artifacts: List[Dict[str, Any]] = None
 
     def __post_init__(self):
-        if self.metadata is None:
+        # Handle cases where metadata might be False or other non-dict values
+        if not isinstance(self.metadata, dict):
             self.metadata = {}
-        if self.artifacts is None:
+        if not isinstance(self.artifacts, list):
             self.artifacts = []
 
 
@@ -170,7 +178,6 @@ def render_chat_input() -> Optional[str]:
     prompt = st.chat_input(
         "Enter your request...",
         key="chat_input",
-        accept_file=False,
     )
 
     # Store options for processing
@@ -507,10 +514,114 @@ def process_user_input(prompt: str, options: Dict[str, Any]) -> None:
 
     add_message(user_message)
 
-    # Process with orchestrator then rerun
-    simulate_agent_response(prompt, tier, output_format, options)
+    # Process with orchestrator (no rerun - let the message display naturally)
+    execute_with_orchestrator(prompt, tier, output_format, options)
 
-    st.rerun()
+
+def execute_with_orchestrator(
+    prompt: str,
+    tier: int,
+    output_format: str,
+    options: Dict[str, Any],
+) -> None:
+    """
+    Execute user request through the real multi-agent orchestrator.
+
+    Args:
+        prompt: User's prompt
+        tier: Complexity tier
+        output_format: Desired output format
+        options: Processing options
+    """
+    try:
+        # Get settings
+        settings = get_settings()
+
+        # Create a processing message
+        processing_message = ChatMessage(
+            message_id=f"msg_{int(time.time() * 1000000)}",
+            role=MessageRole.ASSISTANT,
+            content="🔄 *Starting multi-agent processing...*",
+            timestamp=datetime.now(),
+            status=MessageStatus.PROCESSING,
+            tier=tier,
+            metadata={"tier": tier},
+        )
+        add_message(processing_message)
+
+        # Create orchestrator instance
+        orchestrator = OrchestratorAgent(
+            api_key=get_api_key(),
+            max_budget_usd=options.get("budget", settings.max_budget),
+            max_revisions=2,
+            max_debate_rounds=2,
+            verbose=options.get("verbose", False),
+            enable_persistence=True,
+            enable_auto_compact=True,
+        )
+
+        # Get session ID
+        session_id = st.session_state.get("current_session_id", f"chat_{int(time.time())}")
+
+        # Execute with orchestrator
+        with st.spinner("Agents are working on your request..."):
+            result = orchestrator.execute(
+                user_prompt=prompt,
+                tier_level=tier,
+                session_id=session_id,
+                format=output_format,
+            )
+
+        # Debug: Check result type
+        if not isinstance(result, dict):
+            raise TypeError(f"Orchestrator returned {type(result).__name__} instead of dict: {result}")
+
+        # Extract response data safely
+        response_content = result.get("formatted_output") or result.get("raw_output") or ""
+        duration = result.get("duration_seconds", 0) if isinstance(result.get("duration_seconds"), (int, float)) else 0
+        cost = result.get("total_cost_usd", 0) if isinstance(result.get("total_cost_usd"), (int, float)) else 0
+
+        # Get metadata safely
+        raw_metadata = result.get("metadata")
+        if isinstance(raw_metadata, dict):
+            metadata = raw_metadata
+        else:
+            metadata = {}
+
+        # Update processing message with result
+        processing_message.content = response_content
+        processing_message.status = MessageStatus.COMPLETED
+        processing_message.metadata = {
+            "tier": tier,
+            "duration": duration,
+            "cost": cost,
+            "tokens": metadata.get("total_tokens", 0) if isinstance(metadata, dict) else 0,
+            "agents_used": metadata.get("agents_used", []) if isinstance(metadata, dict) else [],
+            "smes_used": metadata.get("smes_used", []) if isinstance(metadata, dict) else [],
+        }
+
+        # Update session state with agent activity
+        if isinstance(metadata, dict) and "agents_used" in metadata:
+            st.session_state.active_agents = metadata["agents_used"]
+
+    except Exception as e:
+        import traceback
+        # Handle error with full traceback for debugging
+        tb_str = traceback.format_exc()
+        error_message = ChatMessage(
+            message_id=f"msg_{int(time.time() * 1000000)}",
+            role=MessageRole.ASSISTANT,
+            content=f"❌ **Error**: {str(e)}\n\n```\n{tb_str}\n```",
+            timestamp=datetime.now(),
+            status=MessageStatus.FAILED,
+            tier=tier,
+        )
+        # Replace the processing message with error
+        history = get_chat_history()
+        if isinstance(history, list) and history and history[-1].role == MessageRole.ASSISTANT:
+            history[-1] = error_message
+        else:
+            add_message(error_message)
 
 
 def simulate_agent_response(

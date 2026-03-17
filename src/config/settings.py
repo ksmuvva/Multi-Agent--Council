@@ -37,9 +37,10 @@ from enum import Enum
 
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
+    from pydantic import Field, AliasChoices
     PYDANTIC_SETTINGS_AVAILABLE = True
 except ImportError:
-    from pydantic import BaseSettings
+    from pydantic import BaseSettings, Field, AliasChoices
     PYDANTIC_SETTINGS_AVAILABLE = False
 
 
@@ -225,15 +226,15 @@ DEFAULT_MODEL_MAPPINGS: Dict[LLMProvider, ModelMapping] = {
             "council": "glm-4-plus",
             "analyst": "glm-4-plus",
             "planner": "glm-4-plus",
-            "clarifier": "glm-4-flash",
+            "clarifier": "glm-4-plus",
             "researcher": "glm-4-plus",
             "executor": "glm-4-plus",
             "code_reviewer": "glm-4-plus",
             "verifier": "glm-4-plus",
             "critic": "glm-4-plus",
             "reviewer": "glm-4-plus",
-            "formatter": "glm-4-flash",
-            "memory_curator": "glm-4-flash",
+            "formatter": "glm-4-plus",
+            "memory_curator": "glm-4-plus",
             "sme": "glm-4-plus",
         },
     ),
@@ -297,7 +298,16 @@ class Settings(BaseSettings):
     # =========================================================================
     # LLM Provider Selection
     # =========================================================================
-    llm_provider: LLMProvider = LLMProvider.ANTHROPIC
+    # Support both MAS_LLM_PROVIDER and LLM_PROVIDER for backward compatibility
+    llm_provider: LLMProvider = Field(
+        default=LLMProvider.ANTHROPIC,
+        validation_alias=AliasChoices(
+            "mas_llm_provider",
+            "llm_provider",
+            "MAS_LLM_PROVIDER",
+            "LLM_PROVIDER",
+        ),
+    )
 
     # =========================================================================
     # Anthropic Configuration

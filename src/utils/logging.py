@@ -176,20 +176,20 @@ def stack_trace_formatter(logger: Any, method_name: str, event_dict: Dict) -> Di
         exc_info = event_dict["exc_info"]
 
         if exc_info:
-            # Format the exception
-            from structlog.dev import ExceptionRenderer
-
-            renderer = ExceptionRenderer(
-                show_frames=True,
-                frame_limit=10,
-                show_exc_info=True,
-            )
-
-            # Get the formatted exception as string
+            # Format the exception using Python's built-in traceback
+            import traceback as tb
             import io
+            import sys
+
             output = io.StringIO()
-            renderer(output, exc_info)
-            event_dict["stack_trace"] = output.getvalue()
+            # exc_info can be True (boolean) or a 3-tuple
+            # If it's True, get the current exception info
+            if exc_info is True:
+                exc_info = sys.exc_info()
+            # Now format the exception
+            if exc_info and exc_info != (None, None, None):
+                tb.print_exception(exc_info[0], exc_info[1], exc_info[2], file=output)
+                event_dict["stack_trace"] = output.getvalue()
 
     return event_dict
 
@@ -262,8 +262,12 @@ def console_formatter() -> Processor:
     Returns:
         Processor for console formatting
     """
+    # Disable colors on Windows to avoid colorama recursion bug
+    import sys
+    use_colors = sys.platform != 'win32'
+
     return structlog.dev.ConsoleRenderer(
-        colors=True,
+        colors=use_colors,
         exception_formatter=structlog.dev.plain_traceback,
     )
 

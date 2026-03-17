@@ -99,7 +99,8 @@ class ChatMessage:
             timestamp=timestamp,
             agent_name=data.get("agent_name"),
             tier=data.get("tier"),
-            metadata=data.get("metadata", {}),
+            # Ensure metadata is always a dict, even if stored as False or None
+            metadata=data.get("metadata", {}) or {},
         )
 
 

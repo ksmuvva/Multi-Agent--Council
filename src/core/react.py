@@ -109,8 +109,8 @@ class ReactLoop:
         """
         Execute the ReAct loop synchronously.
 
-        Tries Claude Agent SDK first. Falls back to direct Anthropic API
-        with tool use if SDK is unavailable.
+        For GLM provider, uses direct API calls (SDK not compatible).
+        For other providers, tries Claude Agent SDK first with fallback to direct API.
 
         Args:
             task_input: The task/prompt for the agent
@@ -131,17 +131,24 @@ class ReactLoop:
             session_id,
         )
 
-        try:
-            result = self._run_with_agent_sdk(full_prompt, session_id)
-        except ImportError:
-            logger.info("react.sdk_unavailable", agent=self.agent_name,
-                        fallback="anthropic_api")
+        # Check provider - GLM uses direct API calls
+        settings = get_settings()
+        if settings.llm_provider.value == "glm":
+            logger.info("react.using_direct_api_for_glm", agent=self.agent_name)
+            result = self._run_with_direct_api(full_prompt, session_id)
+        else:
+            # Try SDK for other providers
             try:
-                result = self._run_with_anthropic_api(full_prompt, session_id)
+                result = self._run_with_agent_sdk(full_prompt, session_id)
             except ImportError:
-                logger.info("react.anthropic_unavailable", agent=self.agent_name,
-                            fallback="simulation")
-                result = self._run_simulated(full_prompt, session_id)
+                logger.info("react.sdk_unavailable", agent=self.agent_name,
+                            fallback="direct_api")
+                result = self._run_with_direct_api(full_prompt, session_id)
+            except Exception as e:
+                # Catch SDK errors (like ProcessError when running in nested Claude Code session)
+                logger.info("react.sdk_failed", agent=self.agent_name, error=str(e),
+                            fallback="direct_api")
+                result = self._run_with_direct_api(full_prompt, session_id)
 
         duration_ms = int((time.time() - start_time) * 1000)
         result["duration_ms"] = duration_ms
@@ -312,6 +319,142 @@ class ReactLoop:
             opts.output_format = self.output_schema.model_json_schema()
 
         return opts
+
+    # ========================================================================
+    # Direct API execution (GLM or Anthropic based on provider)
+    # ========================================================================
+
+    def _run_with_direct_api(
+        self,
+        prompt: str,
+        session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Execute using direct API calls based on configured provider.
+
+        Routes to GLM API or Anthropic API based on settings.
+        """
+        settings = get_settings()
+
+        if settings.llm_provider.value == "glm":
+            logger.info("react.using_glm_api", agent=self.agent_name)
+            return self._run_with_glm_api(prompt, session_id)
+        else:
+            logger.info("react.using_anthropic_api", agent=self.agent_name)
+            return self._run_with_anthropic_api(prompt, session_id)
+
+    def _run_with_glm_api(
+        self,
+        prompt: str,
+        session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Execute via ZhipuAI GLM API (OpenAI-compatible endpoint).
+
+        GLM doesn't support tool use in the same way as Claude, so we use
+        a simplified approach: single completion call without tools.
+        """
+        import httpx
+        import time
+
+        # Add small delay to avoid rate limiting
+        time.sleep(0.5)
+
+        settings = get_settings()
+        api_key = settings.get_api_key()
+        base_url = settings.get_base_url() or "https://open.bigmodel.cn/api/paas/v4"
+        model = self.model or get_model_for_agent(self.agent_name)
+
+        messages = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 4096,
+        }
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            with httpx.Client(timeout=120) as client:
+                resp = client.post(
+                    f"{base_url}/chat/completions",
+                    json=payload,
+                    headers=headers,
+                )
+
+            if resp.status_code != 200:
+                logger.error(
+                    "react.glm_api_error",
+                    agent=self.agent_name,
+                    status=resp.status_code,
+                    body=resp.text[:500] if resp.text else "No response body",
+                )
+                # Handle rate limiting (429) with a more informative error
+                if resp.status_code == 429:
+                    return {
+                        "status": "error",
+                        "output": None,
+                        "raw_output": "",
+                        "error": "GLM API rate limit exceeded (429). Please try again later or reduce request frequency.",
+                        "tokens_used": 0,
+                        "cost_usd": 0.0,
+                    }
+                return {
+                    "status": "error",
+                    "output": None,
+                    "raw_output": "",
+                    "error": f"GLM API error: {resp.status_code}",
+                    "tokens_used": 0,
+                    "cost_usd": 0.0,
+                }
+
+            data = resp.json()
+            choice = data.get("choices", [{}])[0]
+            message = choice.get("message", {})
+            content = message.get("content", "")
+            usage = data.get("usage", {})
+
+            total_tokens = usage.get("total_tokens", 0)
+            # GLM pricing estimate (approximate)
+            cost = total_tokens / 1_000_000 * 2.0
+
+            logger.info(
+                "react.glm_success",
+                agent=self.agent_name,
+                tokens=total_tokens,
+                cost=cost,
+            )
+
+            return {
+                "status": "success",
+                "output": content,
+                "raw_output": content,
+                "tokens_used": total_tokens,
+                "cost_usd": cost,
+            }
+
+        except Exception as e:
+            logger.error(
+                "react.glm_exception",
+                agent=self.agent_name,
+                error=str(e).encode('utf-8', errors='ignore').decode('utf-8'),
+            )
+            return {
+                "status": "error",
+                "output": None,
+                "raw_output": "",
+                "error": str(e),
+                "tokens_used": 0,
+                "cost_usd": 0.0,
+            }
 
     # ========================================================================
     # Anthropic API fallback (tool use agentic loop)

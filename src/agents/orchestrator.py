@@ -395,18 +395,22 @@ class OrchestratorAgent:
         else:  # markdown (default)
             formatted_output = self._format_as_markdown(result)
 
+        # Safely extract metadata values, ensuring metadata is always a dict
+        metadata = result.get("metadata", {}) or {}
+
         return {
             "formatted_output": formatted_output,
             "raw_output": result.get("response"),
-            "summary": result.get("metadata", {}).get("summary", "Query completed"),
-            "duration_seconds": result.get("metadata", {}).get("duration_seconds", 0),
-            "total_cost_usd": result.get("metadata", {}).get("total_cost_usd", 0),
+            "summary": metadata.get("summary", "Query completed"),
+            "duration_seconds": metadata.get("duration_seconds", 0),
+            "total_cost_usd": metadata.get("total_cost_usd", 0),
             **result,
         }
 
     def _format_as_markdown(self, result: Dict[str, Any]) -> str:
         """Format result as markdown."""
-        metadata = result.get("metadata", {})
+        # Ensure metadata is always a dict (handle case where it might be False or other falsy value)
+        metadata = result.get("metadata", {}) or {}
         response = result.get("response", "")
 
         sections = []
@@ -1205,7 +1209,7 @@ class OrchestratorAgent:
                          action=outcome.action,
                          revision_cycle=session.revision_cycle)
         emit_quality_gate("orchestrator", "verdict_matrix",
-                          outcome.action == MatrixAction.ACCEPT,
+                          outcome.action == MatrixAction.PROCEED_TO_FORMATTER,
                           f"Action: {outcome.action}",
                           session.session_id)
 
@@ -1458,70 +1462,64 @@ class OrchestratorAgent:
         if not outputs:
             return "I apologize, but I wasn't able to generate a response."
 
-        # Categorize outputs by agent role for structured synthesis
-        solution_parts: List[str] = []
-        review_notes: List[str] = []
-        research_findings: List[str] = []
+        # Helper function to extract content from various output formats
+        def extract_content(output: Any) -> str:
+            """Extract text content from various output formats."""
+            if isinstance(output, str):
+                return output
+            elif isinstance(output, dict):
+                # ReactLoop returns {"output": "...", "raw_output": "...", ...}
+                # Try multiple possible keys
+                return (
+                    output.get("output") or
+                    output.get("content") or
+                    output.get("raw_output") or
+                    str(output)
+                )
+            else:
+                return str(output)
 
+        # Collect all extracted outputs
+        extracted_outputs = [extract_content(o) for o in outputs]
+
+        # Filter out empty/None outputs and outputs that are just dict string representations
+        filtered_outputs = []
+        for i, o in enumerate(extracted_outputs):
+            # Skip if empty or None
+            if not o:
+                continue
+            # Skip if it's just a string representation of the original dict
+            if outputs and i < len(outputs) and isinstance(outputs[i], dict):
+                if o == str(outputs[i]):
+                    continue
+            filtered_outputs.append(o)
+        extracted_outputs = filtered_outputs
+
+        if not extracted_outputs:
+            return "I apologize, but I wasn't able to generate a response."
+
+        # Strategy: Prefer Formatter output, then Executor output, then last agent output
+        # This is because Formatter typically has the final polished version
+        preferred_agent_names = ["Formatter", "Executor", "Task Analyst", "Planner", "Analyzer"]
+
+        # Try to find output from preferred agents by iterating through executions
         for execution in session.agent_executions:
             if execution.status not in ("complete", "success") or not execution.output:
                 continue
-            content = (
-                execution.output if isinstance(execution.output, str)
-                else execution.output.get("content", str(execution.output))
-                if isinstance(execution.output, dict) else str(execution.output)
-            )
 
-            if execution.agent_name in ("Executor",):
-                solution_parts.append(content)
-            elif execution.agent_name in ("Verifier", "Critic", "Code Reviewer"):
-                review_notes.append(f"[{execution.agent_name}] {content}")
-            elif execution.agent_name in ("Researcher",):
-                research_findings.append(content)
+            if execution.agent_name in preferred_agent_names:
+                content = extract_content(execution.output)
+                if content and len(content) > 50:  # Has meaningful content
+                    return content
 
-        # Resolve conflicts: if multiple Executor outputs exist (from revisions),
-        # prefer the latest one as it incorporates review feedback
-        if len(solution_parts) > 1:
-            # The last executor output is the most refined
-            primary_solution = solution_parts[-1]
-        elif solution_parts:
-            primary_solution = solution_parts[0]
-        else:
-            # Fallback: use any available output
-            primary_solution = ""
-            for output in outputs:
-                if isinstance(output, str):
-                    primary_solution = output
-                    break
-                elif isinstance(output, dict):
-                    primary_solution = output.get("content", str(output))
-                    break
+        # Fallback: Use the last non-empty extracted output
+        # (This is often the Formatter or final agent in the chain)
+        for output in reversed(extracted_outputs):
+            if output and len(str(output)) > 50:
+                return output
 
-        if not primary_solution:
-            return "I apologize, but I wasn't able to generate a response."
-
-        # Build the unified response
-        response_sections = [primary_solution]
-
-        # Append a brief review summary if there were notable findings
-        # (only for Tier 3+ where reviews are substantive)
-        if review_notes and session.current_tier >= TierLevel.DEEP:
-            # Summarize review insights rather than dumping raw notes
-            review_summary_parts = []
-            for note in review_notes:
-                # Only include notes that contain actionable feedback
-                lower_note = note.lower()
-                if any(kw in lower_note for kw in [
-                    "issue", "concern", "recommend", "suggest", "note",
-                    "warning", "error", "improve", "consider",
-                ]):
-                    review_summary_parts.append(note)
-            if review_summary_parts:
-                response_sections.append(
-                    "---\n**Review Notes:**\n" + "\n".join(review_summary_parts)
-                )
-
-        return "\n\n".join(response_sections)
+        # Last resort: join all outputs
+        return "\n\n---\n\n".join(extracted_outputs)
 
     # ========================================================================
     # Input/Output Utilities

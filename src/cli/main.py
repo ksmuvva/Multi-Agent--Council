@@ -513,9 +513,9 @@ def personas(
             by_domain[persona.domain].append(persona)
 
         for domain, domain_personas in sorted(by_domain.items()):
-            typer.echo(f"\n📚 {domain}:")
+            typer.echo(f"\n[{domain}]")
             for persona in domain_personas:
-                typer.echo(f"  • {persona.name}")
+                typer.echo(f"  - {persona.name}")
                 typer.echo(f"      ID: {persona.persona_id}")
                 typer.echo(f"      Skills: {', '.join(persona.skill_files)}")
                 typer.echo(f"      Modes: {', '.join(m.value for m in persona.interaction_modes)}")
@@ -605,7 +605,7 @@ def ensembles(
     typer.echo(f"Total patterns: {len(ensembles)}\n")
 
     for ensemble_type, ensemble in ensembles.items():
-        typer.echo(f"📋 {ensemble.name}")
+        typer.echo(f"[{ensemble.name}]")
         typer.echo(f"   Type: {ensemble_type.value}")
         typer.echo(f"   Description: {ensemble.description}")
 

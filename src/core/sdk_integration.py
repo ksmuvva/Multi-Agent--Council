@@ -330,35 +330,38 @@ def _execute_sdk_query(
     This method interfaces with the Claude Agent SDK's query() method
     or Task tool depending on the execution context.
 
-    In production, this calls claude_agent_sdk.query().
-    Falls back to direct Anthropic API calls if SDK is not available.
+    For GLM provider, skips SDK and uses direct API calls for better compatibility.
+    For other providers, attempts SDK with fallback to direct API calls.
     """
-    try:
-        # Try Claude Agent SDK first
-        from claude_agent_sdk import query as sdk_query
+    # Check provider first - GLM uses direct API calls
+    settings = get_settings()
+    if settings.llm_provider.value == "glm":
+        return _execute_glm_api(sdk_kwargs, input_data)
 
-        result = sdk_query(
-            prompt=input_data,
-            system=sdk_kwargs.get("system_prompt", ""),
-            model=sdk_kwargs.get("model", "claude-sonnet-4-20250514"),
-            max_turns=sdk_kwargs.get("max_turns", 30),
-            allowed_tools=sdk_kwargs.get("allowed_tools"),
-            output_format=sdk_kwargs.get("output_format"),
+    try:
+        # Try Claude Agent SDK for non-GLM providers
+        from claude_agent_sdk import query as sdk_query
+        from claude_agent_sdk import ClaudeAgentOptions
+
+        # Build SDK options from kwargs
+        options = ClaudeAgentOptions(
+            system_prompt=sdk_kwargs.get("system_prompt", ""),
         )
 
-        return {
-            "output": result.get("response", result.get("output", "")),
-            "tokens_used": result.get("usage", {}).get("total_tokens", 0),
-            "cost_usd": result.get("cost", 0.0),
-        }
+        # Note: SDK's query() is async and requires special handling
+        # For now, fall back to direct API calls for simplicity
+        raise ImportError("SDK not yet implemented for this use case")
 
-    except ImportError:
-        # Check if we should use GLM API instead
-        settings = get_settings()
-        if settings.llm_provider.value == "glm":
+    except (ImportError, NotImplementedError, TypeError, AttributeError) as e:
+        # Fall back to direct API calls
+        logger = get_logger("sdk_integration")
+        logger.debug("sdk_query.fallback", reason=str(e))
+
+        if settings.llm_provider.value == "anthropic":
+            return _execute_anthropic_api(sdk_kwargs, input_data)
+        else:
+            # For any other provider, try GLM or return simulation
             return _execute_glm_api(sdk_kwargs, input_data)
-        # Fall back to direct Anthropic API
-        return _execute_anthropic_api(sdk_kwargs, input_data)
 
 
 def _execute_glm_api(
@@ -376,7 +379,8 @@ def _execute_glm_api(
     settings = get_settings()
     api_key = settings.get_api_key()
     base_url = settings.get_base_url() or "https://open.bigmodel.cn/api/paas/v4"
-    model = sdk_kwargs.get("model", "glm-4-plus")
+    # Use the model from settings if not provided in sdk_kwargs
+    model = sdk_kwargs.get("model", settings.get_model_for_agent("default"))
 
     messages = []
     system_prompt = sdk_kwargs.get("system_prompt", "")
@@ -397,6 +401,9 @@ def _execute_glm_api(
     }
 
     logger = get_logger("sdk_integration")
+
+    # Add small delay to avoid rate limiting
+    _time.sleep(0.5)
 
     for attempt in range(3):
         try:
