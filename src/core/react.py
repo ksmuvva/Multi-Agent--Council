@@ -353,12 +353,11 @@ class ReactLoop:
 
         GLM doesn't support tool use in the same way as Claude, so we use
         a simplified approach: single completion call without tools.
+
+        Includes retry logic for rate limiting (429 errors).
         """
         import httpx
         import time
-
-        # Add small delay to avoid rate limiting
-        time.sleep(0.5)
 
         settings = get_settings()
         api_key = settings.get_api_key()
@@ -382,31 +381,92 @@ class ReactLoop:
             "Content-Type": "application/json",
         }
 
-        try:
-            with httpx.Client(timeout=120) as client:
-                resp = client.post(
-                    f"{base_url}/chat/completions",
-                    json=payload,
-                    headers=headers,
-                )
+        # Retry logic for rate limiting
+        max_retries = 3
+        base_delay = 2.0  # seconds
 
-            if resp.status_code != 200:
+        for attempt in range(max_retries):
+            try:
+                # Add delay between retries (or before first request to avoid burst)
+                if attempt > 0:
+                    delay = base_delay * (2 ** (attempt - 1))  # Exponential backoff
+                    logger.info(
+                        "react.glm_retry",
+                        agent=self.agent_name,
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        delay=delay,
+                    )
+                    time.sleep(delay)
+                else:
+                    time.sleep(0.3)  # Small initial delay to avoid rate limiting
+
+                with httpx.Client(timeout=120) as client:
+                    resp = client.post(
+                        f"{base_url}/chat/completions",
+                        json=payload,
+                        headers=headers,
+                    )
+
+                # Success - return the response
+                if resp.status_code == 200:
+                    data = resp.json()
+                    choice = data.get("choices", [{}])[0]
+                    message = choice.get("message", {})
+                    content = message.get("content", "")
+                    usage = data.get("usage", {})
+
+                    total_tokens = usage.get("total_tokens", 0)
+                    # GLM pricing estimate (approximate)
+                    cost = total_tokens / 1_000_000 * 2.0
+
+                    logger.info(
+                        "react.glm_success",
+                        agent=self.agent_name,
+                        tokens=total_tokens,
+                        cost=cost,
+                    )
+
+                    return {
+                        "status": "success",
+                        "output": content,
+                        "raw_output": content,
+                        "tokens_used": total_tokens,
+                        "cost_usd": cost,
+                    }
+
+                # Rate limiting (429) - retry with backoff
+                if resp.status_code == 429:
+                    if attempt < max_retries - 1:
+                        logger.warning(
+                            "react.glm_rate_limited",
+                            agent=self.agent_name,
+                            attempt=attempt + 1,
+                            max_retries=max_retries,
+                        )
+                        continue  # Retry after delay
+                    else:
+                        logger.error(
+                            "react.glm_rate_limit_exceeded",
+                            agent=self.agent_name,
+                            max_retries=max_retries,
+                        )
+                        return {
+                            "status": "error",
+                            "output": None,
+                            "raw_output": "",
+                            "error": "GLM API rate limit exceeded (429). Please try again later.",
+                            "tokens_used": 0,
+                            "cost_usd": 0.0,
+                        }
+
+                # Other HTTP errors - don't retry
                 logger.error(
                     "react.glm_api_error",
                     agent=self.agent_name,
                     status=resp.status_code,
-                    body=resp.text[:500] if resp.text else "No response body",
+                    body=resp.text[:200] if resp.text else "No response body",
                 )
-                # Handle rate limiting (429) with a more informative error
-                if resp.status_code == 429:
-                    return {
-                        "status": "error",
-                        "output": None,
-                        "raw_output": "",
-                        "error": "GLM API rate limit exceeded (429). Please try again later or reduce request frequency.",
-                        "tokens_used": 0,
-                        "cost_usd": 0.0,
-                    }
                 return {
                     "status": "error",
                     "output": None,
@@ -416,45 +476,59 @@ class ReactLoop:
                     "cost_usd": 0.0,
                 }
 
-            data = resp.json()
-            choice = data.get("choices", [{}])[0]
-            message = choice.get("message", {})
-            content = message.get("content", "")
-            usage = data.get("usage", {})
+            except httpx.TimeoutError as e:
+                logger.warning(
+                    "react.glm_timeout",
+                    agent=self.agent_name,
+                    attempt=attempt + 1,
+                    max_retries=max_retries,
+                )
+                if attempt == max_retries - 1:
+                    return {
+                        "status": "error",
+                        "output": None,
+                        "raw_output": "",
+                        "error": "GLM API request timed out",
+                        "tokens_used": 0,
+                        "cost_usd": 0.0,
+                    }
 
-            total_tokens = usage.get("total_tokens", 0)
-            # GLM pricing estimate (approximate)
-            cost = total_tokens / 1_000_000 * 2.0
+            except Exception as e:
+                # Safely handle error messages that may contain non-ASCII characters
+                # (e.g., Chinese characters in GLM error messages)
+                error_msg = str(e)
+                try:
+                    # Try to encode as ASCII for safe logging
+                    safe_error = error_msg.encode('ascii', errors='replace').decode('ascii')
+                except (UnicodeDecodeError, UnicodeEncodeError):
+                    safe_error = "[Error message contains unsupported characters]"
 
-            logger.info(
-                "react.glm_success",
-                agent=self.agent_name,
-                tokens=total_tokens,
-                cost=cost,
-            )
+                logger.error(
+                    "react.glm_exception",
+                    agent=self.agent_name,
+                    error=safe_error,
+                    error_type=type(e).__name__,
+                    attempt=attempt + 1,
+                )
+                # Don't retry on most exceptions, just return error
+                return {
+                    "status": "error",
+                    "output": None,
+                    "raw_output": "",
+                    "error": error_msg,
+                    "tokens_used": 0,
+                    "cost_usd": 0.0,
+                }
 
-            return {
-                "status": "success",
-                "output": content,
-                "raw_output": content,
-                "tokens_used": total_tokens,
-                "cost_usd": cost,
-            }
-
-        except Exception as e:
-            logger.error(
-                "react.glm_exception",
-                agent=self.agent_name,
-                error=str(e).encode('utf-8', errors='ignore').decode('utf-8'),
-            )
-            return {
-                "status": "error",
-                "output": None,
-                "raw_output": "",
-                "error": str(e),
-                "tokens_used": 0,
-                "cost_usd": 0.0,
-            }
+        # Should not reach here, but just in case
+        return {
+            "status": "error",
+            "output": None,
+            "raw_output": "",
+            "error": "Max retries exceeded",
+            "tokens_used": 0,
+            "cost_usd": 0.0,
+        }
 
     # ========================================================================
     # Anthropic API fallback (tool use agentic loop)
