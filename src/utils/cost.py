@@ -580,14 +580,14 @@ class CostLimit:
         Logs session summary for debugging.
         """
         if self.tracker and self.session_id:
-            session = self.tracker.get_session(self.session_id)
+            session = self.tracker.get_session_state(self.session_id)
             if session:
                 self.tracker._logger.debug(
                     "cost_session.context_exit",
                     session_id=self.session_id,
-                    total_cost=session.total_cost_usd,
+                    total_cost=session.total_cost,
                     total_tokens=session.total_tokens,
-                    duration_seconds=session.duration_seconds,
+                    duration_seconds=int(session.duration.total_seconds()),
                 )
         # Return None to indicate no exception handling
         return None
