@@ -787,6 +787,17 @@ class ReactLoop:
                     "required": ["url", "prompt"],
                 },
             },
+            "Skill": {
+                "name": "Skill",
+                "description": "Load and read a skill file from .claude/skills/{name}/SKILL.md",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "skill": {"type": "string", "description": "Skill name (e.g., 'code-generation')"},
+                    },
+                    "required": ["skill"],
+                },
+            },
         }
 
         return [tool_defs[t] for t in self.allowed_tools if t in tool_defs]
@@ -815,6 +826,8 @@ class ReactLoop:
                 return self._tool_websearch(tool_input)
             elif tool_name == "WebFetch":
                 return self._tool_webfetch(tool_input)
+            elif tool_name == "Skill":
+                return self._tool_skill(tool_input)
             else:
                 return f"Error: Unknown tool '{tool_name}'"
         except Exception as e:
@@ -928,22 +941,222 @@ class ReactLoop:
         except Exception as e:
             return f"Error in grep: {e}"
 
-    @staticmethod
-    def _tool_websearch(input: Dict[str, Any]) -> str:
+    def _tool_websearch(self, input: Dict[str, Any]) -> str:
+        """
+        Execute WebSearch using available web search capabilities.
+
+        This provides real web search functionality for the Researcher agent.
+        Falls back to simulated results if no web search is available.
+        """
         query_text = input.get("query", "")
+        max_results = input.get("max_results", 5)
+
+        # Try using the web_tools module
+        try:
+            from src.tools.web_tools import web_search_tool
+
+            results = web_search_tool(query=query_text, max_results=max_results)
+
+            if results and isinstance(results, list):
+                formatted_results = []
+                for i, result in enumerate(results[:5], 1):
+                    url = result.get("url", "")
+                    title = result.get("title", "")
+                    snippet = result.get("snippet", result.get("body", ""))[:200]
+                    formatted_results.append(
+                        f"{i}. {title}\n"
+                        f"   URL: {url}\n"
+                        f"   {snippet}..."
+                    )
+                return "\n\n".join(formatted_results) if formatted_results else "No results found."
+        except ImportError as e:
+            logger.warning("react.websearch_import_failed", error=str(e))
+        except Exception as e:
+            logger.warning("react.websearch_failed", error=str(e))
+
+        # Try using the WebSearch tool from the environment if available
+        try:
+            # Import and use the WebSearch tool from the MCP server
+            from src.tools.web_tools import web_search_tool
+
+            results = web_search_tool(query=query_text, max_results=5)
+
+            if results and isinstance(results, list):
+                formatted_results = []
+                for i, result in enumerate(results[:5], 1):
+                    url = result.get("url", "")
+                    title = result.get("title", "")
+                    snippet = result.get("snippet", result.get("body", ""))[:200]
+                    formatted_results.append(
+                        f"{i}. {title}\n"
+                        f"   URL: {url}\n"
+                        f"   {snippet}..."
+                    )
+                return "\n\n".join(formatted_results) if formatted_results else "No results found."
+        except ImportError:
+            pass  # Fall through to next attempt
+        except Exception as e:
+            logger.warning("react.websearch_failed", error=str(e))
+
+        # Try using the environment's WebSearch capability
+        try:
+            # The environment may have WebSearch available
+            import subprocess
+            import json
+
+            # Try to use a web search API or service
+            # This is a placeholder - in production, this would call a real web search API
+            result = subprocess.run(
+                ["echo", f"WebSearch for: {query_text}"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            # For now, provide informative output about search being simulated
+            # In production with SDK, this would return real results
+            return (
+                f"[WebSearch results for: {query_text}]\n"
+                f"Note: When using Claude Agent SDK, WebSearch provides real results. "
+                f"Current fallback mode: search would be performed via SDK.\n"
+                f"To enable real web search: Ensure API key is configured and use SDK mode."
+            )
+        except Exception as e:
+            logger.warning("react.websearch_fallback_failed", error=str(e))
+
+        # Final fallback
         return (
             f"[WebSearch results for: {query_text}]\n"
-            "Note: Real web search requires the Claude Agent SDK. "
-            "Using Anthropic API fallback - web search unavailable."
+            "Note: Real web search requires the Claude Agent SDK with proper API key. "
+            "Ensure MAS_LLM_PROVIDER is set correctly and API keys are configured."
+        )
+
+    def _tool_webfetch(self, input: Dict[str, Any]) -> str:
+        """
+        Execute WebFetch to retrieve content from a URL.
+
+        This provides real web content fetching for the Researcher agent.
+        Falls back to simulated content if fetching fails.
+        """
+        url = input.get("url", "")
+        prompt = input.get("prompt", "Extract the main content from this page")
+
+        if not url:
+            return "Error: No URL provided for WebFetch"
+
+        # Try using the web_tools module
+        try:
+            from src.tools.web_tools import web_fetch_tool
+
+            content = web_fetch_tool(url=url, prompt=prompt)
+            return content
+        except ImportError as e:
+            logger.warning("react.webfetch_import_failed", error=str(e))
+        except Exception as e:
+            logger.warning("react.webfetch_failed", url=url, error=str(e))
+
+        if not url:
+            return "Error: No URL provided for WebFetch"
+
+        # Try using real web fetching
+        try:
+            import httpx
+            from html.parser import HTMLParser
+            from io import StringIO
+
+            # Fetch the page
+            headers = {
+                "User-Agent": "Mozilla/5.0 (compatible; Multi-Agent-Researcher/1.0)"
+            }
+
+            with httpx.Client(timeout=30) as client:
+                response = client.get(url, headers=headers, follow_redirects=True)
+
+                if response.status_code == 200:
+                    # Extract text content from HTML
+                    html_content = response.text
+
+                    # Simple HTML tag removal for content extraction
+                    import re
+                    # Remove script and style tags
+                    html_content = re.sub(r'<script[^>]*>.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+                    html_content = re.sub(r'<style[^>]*>.*?</style>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+                    # Remove HTML tags
+                    text_content = re.sub(r'<[^>]+>', '\n', html_content)
+                    # Clean up whitespace
+                    text_content = re.sub(r'\n\s*\n', '\n\n', text_content)
+                    text_content = text_content.strip()
+
+                    # Return first 2000 characters
+                    if len(text_content) > 2000:
+                        text_content = text_content[:2000] + "...\n\n[Content truncated due to length]"
+
+                    return f"Content from {url}:\n\n{text_content}"
+                else:
+                    return f"Error: Failed to fetch {url} (HTTP {response.status_code})"
+
+        except httpx.TimeoutError:
+            return f"Error: Timeout while fetching {url}"
+        except Exception as e:
+            logger.warning("react.webfetch_failed", url=url, error=str(e))
+
+        # Fallback message
+        return (
+            f"[WebFetch for: {url}]\n"
+            f"Prompt: {prompt}\n"
+            "Note: Real web fetch requires network access. When using Claude Agent SDK, "
+            "WebFetch provides real content. Ensure network access is available."
         )
 
     @staticmethod
-    def _tool_webfetch(input: Dict[str, Any]) -> str:
-        url = input.get("url", "")
+    def _tool_skill(input: Dict[str, Any]) -> str:
+        """
+        Execute Skill to load and read a skill file.
+
+        Skills are stored in .claude/skills/{name}/SKILL.md and provide
+        specialized instructions and capabilities to agents.
+        """
+        skill_name = input.get("skill", "")
+
+        if not skill_name:
+            return "Error: No skill name provided for Skill tool"
+
+        # Try multiple possible skill file locations
+        import os
+        possible_paths = [
+            # Project-local skills
+            f".claude/skills/{skill_name}/SKILL.md",
+            f"skills/{skill_name}/SKILL.md",
+            # User-level skills
+            os.path.expanduser(f"~/.claude/skills/{skill_name}/SKILL.md"),
+            os.path.expanduser(f"~/.claude/project/{skill_name}/SKILL.md"),
+            # Module-relative skills
+            os.path.join(os.path.dirname(__file__), "..", "skills", skill_name, "SKILL.md"),
+        ]
+
+        for skill_path in possible_paths:
+            try:
+                # Resolve relative paths against current working directory
+                if not os.path.isabs(skill_path):
+                    skill_path = os.path.abspath(skill_path)
+
+                if os.path.exists(skill_path):
+                    with open(skill_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+
+                    # Truncate very long skill files
+                    if len(content) > 5000:
+                        content = content[:5000] + "\n\n... [Skill content truncated due to length]"
+
+                    return f"Skill: {skill_name}\nPath: {skill_path}\n\n{content}"
+            except Exception as e:
+                continue  # Try next path
+
+        # Skill not found
         return (
-            f"[WebFetch for: {url}]\n"
-            "Note: Real web fetch requires the Claude Agent SDK. "
-            "Using Anthropic API fallback - web fetch unavailable."
+            f"Error: Skill '{skill_name}' not found.\n"
+            f"Searched paths:\n" + "\n".join(f"  - {p}" for p in possible_paths) + "\n"
+            f"Hint: Skills should be in .claude/skills/{{name}}/SKILL.md"
         )
 
     # ========================================================================

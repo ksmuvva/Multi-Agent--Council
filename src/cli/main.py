@@ -747,7 +747,7 @@ def sessions(
         typer.echo(f"Created: {session.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
         typer.echo(f"Updated: {session.updated_at.strftime('%Y-%m-%d %H:%M:%S')}")
         typer.echo(f"Tier: {session.tier}")
-        typer.echo(f"Max Budget: ${session.max_budget_usd:.2f}")
+        typer.echo(f"Max Budget: ${session.max_budget:.2f}")
         typer.echo(f"")
         typer.echo(f"Messages: {len(session.messages)}")
         typer.echo(f"Agent Outputs: {len(session.agent_outputs)}")

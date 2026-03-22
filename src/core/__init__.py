@@ -45,6 +45,9 @@ from .debate import (
     DebateRound,
     DebateOutcome,
     DebateProtocol,
+    SMEDebateState,
+    SMEConvergenceReason,
+    SMEDebateProtocol,
     trigger_debate,
     get_debate_participants,
 )
@@ -144,6 +147,9 @@ __all__ = [
     "DebateRound",
     "DebateOutcome",
     "DebateProtocol",
+    "SMEDebateState",
+    "SMEConvergenceReason",
+    "SMEDebateProtocol",
     "trigger_debate",
     "get_debate_participants",
     # Pipeline

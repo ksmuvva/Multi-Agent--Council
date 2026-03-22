@@ -10,7 +10,7 @@ trigger_keywords:
   - component
   - responsive
 skill_files:
-  - frontend-design
+  - code-generation
 interaction_modes:
   - advisor
   - co-executor

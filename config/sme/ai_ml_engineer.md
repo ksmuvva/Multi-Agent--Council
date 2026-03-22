@@ -11,8 +11,8 @@ trigger_keywords:
   - genai
   - prompt engineering
 skill_files:
-  - ai-engineer
-  - genai-system-design
+  - architecture-design
+  - multi-agent-reasoning
 interaction_modes:
   - advisor
   - co-executor

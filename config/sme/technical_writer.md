@@ -10,8 +10,7 @@ trigger_keywords:
   - api docs
   - readme
 skill_files:
-  - human-like-writing
-  - tender-writing-expert
+  - document-creation
 interaction_modes:
   - advisor
   - co-executor

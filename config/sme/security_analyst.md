@@ -11,7 +11,7 @@ trigger_keywords:
   - secure coding
   - encryption
 skill_files:
-  - azure-architect
+  - architecture-design
 interaction_modes:
   - advisor
   - debater

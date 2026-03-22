@@ -149,6 +149,11 @@ class SessionState:
     description: Optional[str] = None
     tags: List[str] = field(default_factory=list)
 
+    @property
+    def max_budget_usd(self) -> float:
+        """Alias for max_budget for compatibility with orchestrator code."""
+        return self.max_budget
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -188,7 +193,7 @@ class SessionState:
             created_at=created_at,
             updated_at=updated_at,
             tier=data.get("tier", 2),
-            max_budget=data.get("max_budget", 10.0),
+            max_budget=data.get("max_budget") or data.get("max_budget_usd", 10.0),
             default_format=data.get("default_format", "markdown"),
             messages=messages,
             agent_outputs=agent_outputs,

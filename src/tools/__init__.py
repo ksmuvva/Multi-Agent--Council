@@ -25,6 +25,11 @@ from .custom_tools import (
     system_get_status,
 )
 
+from .web_tools import (
+    web_search_tool,
+    web_fetch_tool,
+)
+
 __all__ = [
     # Classes
     "ToolCategory",
@@ -48,4 +53,7 @@ __all__ = [
     "knowledge_list",
     "cost_estimate",
     "system_get_status",
+    # Web tools
+    "web_search_tool",
+    "web_fetch_tool",
 ]

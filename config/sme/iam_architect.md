@@ -12,8 +12,7 @@ trigger_keywords:
   - authorization
   - privileged access
 skill_files:
-  - sailpoint-test-engineer
-  - azure-architect
+  - architecture-design
 interaction_modes:
   - advisor
   - co-executor
