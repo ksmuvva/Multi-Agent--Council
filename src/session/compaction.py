@@ -75,6 +75,8 @@ class CompactionResult:
     reduction_ratio: float
     summary: str
     preserved_items: List[str]  # Descriptions of what was preserved
+    reorientation_complete: bool = True  # Whether re-orientation fully succeeded
+    reorientation_warnings: List[str] = field(default_factory=list)  # Any issues during re-orientation
 
 
 # =============================================================================
@@ -392,6 +394,17 @@ class ContextCompactor:
         compacted_tokens = self.estimate_tokens_from_messages(compacted_messages)
         tokens_removed = original_tokens - compacted_tokens
 
+        # Re-read CLAUDE.md for re-orientation post-compaction
+        reorientation_complete, reorientation_warnings, reorientation = self._build_reorientation_prompt(session)
+
+        # If re-orientation failed, add a warning to the summary
+        if not reorientation_complete:
+            self._logger.warning(
+                "compaction_reorientation_incomplete",
+                session_id=session.session_id,
+                warnings=reorientation_warnings,
+            )
+
         result = CompactionResult(
             original_count=original_count,
             compacted_count=len(compacted_messages),
@@ -403,21 +416,25 @@ class ContextCompactor:
                 f"{category}: {len(indices)} items"
                 for category, indices in preserve.items()
             ],
+            reorientation_complete=reorientation_complete,
+            reorientation_warnings=reorientation_warnings,
         )
 
         # Update session (create new instance to avoid mutation issues)
         session.messages = compacted_messages
         session.updated_at = datetime.now()
 
-        # Re-read CLAUDE.md for re-orientation post-compaction
-        reorientation = self._build_reorientation_prompt(session)
-
         # Add re-orientation as a system message
         reorientation_message = ChatMessage(
             role="system",
             content=reorientation,
             timestamp=datetime.now(),
-            metadata={"compaction": "reorientation", "auto_compaction": True},
+            metadata={
+                "compaction": "reorientation",
+                "auto_compaction": True,
+                "reorientation_complete": reorientation_complete,
+                "reorientation_warnings": reorientation_warnings,
+            },
         )
         session.messages.insert(0, reorientation_message)
 
@@ -441,12 +458,21 @@ class ContextCompactor:
 
         return result
 
-    def _build_reorientation_prompt(self, session: SessionState) -> str:
+    def _build_reorientation_prompt(self, session: SessionState) -> tuple[bool, List[str], str]:
         """
         Build a re-orientation prompt by re-reading CLAUDE.md files.
 
         This ensures agents can recover context after compaction.
+
+        Returns:
+            Tuple of (complete, warnings, prompt_text)
+            - complete: True if re-orientation fully succeeded
+            - warnings: List of warning messages for any issues
+            - prompt_text: The re-orientation prompt text
         """
+        reorientation_complete = True
+        reorientation_warnings = []
+
         reorientation_parts = [
             "# Context Compaction - Re-orientation",
             "",
@@ -469,9 +495,15 @@ class ContextCompactor:
                         reorientation_parts.append(line)
                     elif "Re-orientation" in line or "re-read" in line.lower():
                         reorientation_parts.append(line)
+            else:
+                reorientation_complete = False
+                reorientation_warnings.append("CLAUDE.md not found - using minimal re-orientation")
+                self._logger.warning("claude_md_not_found_for_reorientation")
         except Exception as e:
-            logger = get_logger("compaction")
-            logger.warning(f"Failed to read CLAUDE.md for re-orientation: {e}")
+            reorientation_complete = False
+            warning = f"Failed to read CLAUDE.md: {e}"
+            reorientation_warnings.append(warning)
+            self._logger.warning("claude_md_read_failed_for_reorientation", error=str(e))
 
         # Add session state
         reorientation_parts.extend([
@@ -490,7 +522,7 @@ class ContextCompactor:
             "- Set `escalation_needed: true` if the task exceeds your capability",
         ])
 
-        return "\n".join(reorientation_parts)
+        return reorientation_complete, reorientation_warnings, "\n".join(reorientation_parts)
 
     def estimate_tokens(self, session: SessionState) -> int:
         """Estimate tokens in session."""

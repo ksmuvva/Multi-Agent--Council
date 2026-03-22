@@ -588,7 +588,8 @@ class ReviewerAgent:
             return Verdict.FAIL
 
         # FAIL if code review failed (for code output)
-        if context.is_code_output and quality_gates.code_review_passed:
+        # Note: code_review_passed is None for non-code output, so we check both conditions
+        if context.is_code_output and quality_gates.code_review_passed is not None:
             if not quality_gates.code_review_passed.passed:
                 return Verdict.FAIL
 

@@ -17,6 +17,25 @@ from src.utils.logging import get_logger
 
 
 # =============================================================================
+# Exceptions
+# =============================================================================
+
+class SessionNotFoundError(Exception):
+    """Raised when a session file is not found."""
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        super().__init__(f"Session not found: {session_id}")
+
+
+class SessionLoadError(Exception):
+    """Raised when a session file exists but cannot be loaded."""
+    def __init__(self, session_id: str, reason: str):
+        self.session_id = session_id
+        self.reason = reason
+        super().__init__(f"Failed to load session {session_id}: {reason}")
+
+
+# =============================================================================
 # Session Data Structures
 # =============================================================================
 
@@ -292,13 +311,16 @@ class SessionPersistence:
             session_id: Session ID to load
 
         Returns:
-            SessionState if found, None otherwise
+            SessionState if found, None if not found
+
+        Raises:
+            SessionLoadError: If the session file exists but cannot be loaded
         """
         with self._lock:
             session_path = self.get_session_path(session_id)
 
             if not session_path.exists():
-                self._logger.warning("session_not_found", session_id=session_id)
+                self._logger.debug("session_not_found", session_id=session_id)
                 return None
 
             try:
@@ -316,13 +338,38 @@ class SessionPersistence:
 
                 return session
 
-            except Exception as e:
+            except json.JSONDecodeError as e:
+                # File exists but contains invalid JSON
+                error_msg = f"Invalid JSON in session file: {e}"
                 self._logger.error(
-                    "session_load_error",
+                    "session_load_invalid_json",
                     session_id=session_id,
                     error=str(e),
+                    path=str(session_path),
                 )
-                return None
+                raise SessionLoadError(session_id, error_msg) from e
+
+            except (KeyError, ValueError, TypeError) as e:
+                # File exists but has invalid data structure
+                error_msg = f"Invalid session data structure: {e}"
+                self._logger.error(
+                    "session_load_invalid_data",
+                    session_id=session_id,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                raise SessionLoadError(session_id, error_msg) from e
+
+            except Exception as e:
+                # Unexpected error
+                error_msg = f"Unexpected error loading session: {e}"
+                self._logger.error(
+                    "session_load_unexpected_error",
+                    session_id=session_id,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                raise SessionLoadError(session_id, error_msg) from e
 
     def list_sessions(
         self,
@@ -501,7 +548,10 @@ def resume_session(session_id: str) -> Optional[SessionState]:
         session_id: Session ID to resume
 
     Returns:
-        SessionState if found, None otherwise
+        SessionState if found, None if not found
+
+    Raises:
+        SessionLoadError: If the session file exists but cannot be loaded
     """
     persistence = get_session_persistence()
     return persistence.load_session(session_id)

@@ -462,14 +462,38 @@ class ExecutionPipeline:
             # Re-run research phase with the agent_executor stored in context
             agent_executor = context.get("agent_executor")
             if agent_executor:
-                research_result = self.execute_phase(
-                    Phase.PHASE_4_RESEARCH, agent_executor, context
-                )
-                logger.info(
-                    f"Research re-verification complete: status={research_result.status}"
-                )
+                try:
+                    research_result = self.execute_phase(
+                        Phase.PHASE_4_RESEARCH, agent_executor, context
+                    )
+                    logger.info(
+                        f"Research re-verification complete: status={research_result.status}"
+                    )
+
+                    # Check if re-verification failed
+                    if research_result.status == PhaseStatus.FAILED:
+                        logger.error(
+                            "research.reverification_failed",
+                            phase=Phase.PHASE_4_RESEARCH.value,
+                            message="Research re-verification failed - continuing with stale data",
+                        )
+                        context["reverification_failed"] = True
+                except Exception as e:
+                    logger.error(
+                        "research.reverification_error",
+                        phase=Phase.PHASE_4_RESEARCH.value,
+                        error=str(e),
+                        message="Research re-verification raised exception - continuing with stale data",
+                    )
+                    context["reverification_failed"] = True
             else:
-                logger.warning("No agent_executor in context; cannot re-run research phase")
+                logger.error(
+                    "research.no_agent_executor",
+                    message="Cannot re-run research phase - no agent_executor available",
+                    context_keys=list(context.keys()),
+                )
+                context["reverification_failed"] = True
+                context["reverification_skipped"] = True
 
         elif action == MatrixAction.FULL_REGENERATION:
             logger.info("Verdict action: FULL_REGENERATION - resetting to solution generation phase")
