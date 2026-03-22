@@ -143,10 +143,7 @@ def get_ensemble(pattern_id: str) -> Optional[EnsemblePattern]:
         if ensemble:
             return _convert_ensemble_to_ui(pattern_id, ensemble)
     return None
-    EnsemblePattern(
-        pattern_id="architecture_review_board",
-        name="Architecture Review Board",
-        description="Comprehensive architecture review with multiple perspectives",
+
 
 # =============================================================================
 # Rendering
