@@ -10,6 +10,7 @@ from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
 
 from src.utils.logging import get_logger
+from src.core.sme_registry import SME_REGISTRY
 
 _logger = get_logger("debate_viewer")
 from enum import Enum
@@ -124,7 +125,32 @@ class DebateTranscript:
 
 
 # =============================================================================
-# Mock Debate Generator (for testing)
+# Data Loading Functions
+# =============================================================================
+
+def get_real_sme_names() -> List[str]:
+    """Get real SME persona names from the SME registry."""
+    try:
+        return [persona.name for persona in SME_REGISTRY.values()]
+    except Exception:
+        _logger.warning("Failed to load SME names from registry, using fallback")
+        return [
+            "IAM Architect", "Cloud Architect", "Security Analyst",
+            "Data Engineer", "AI/ML Engineer", "Test Engineer",
+            "Business Analyst", "Technical Writer", "DevOps Engineer",
+            "Frontend Developer",
+        ]
+
+
+def load_real_debates() -> List[DebateTranscript]:
+    """Load real debate data from the system."""
+    # This would load from stored debate results
+    # For now, return empty list - real debates should be loaded from session state
+    return st.session_state.get("debate_history", [])
+
+
+# =============================================================================
+# Mock Debate Generator (for testing/demo only)
 # =============================================================================
 
 def generate_mock_debate() -> DebateTranscript:
@@ -304,17 +330,25 @@ def render_debate_viewer() -> None:
 
 
 def load_debate() -> Optional[DebateTranscript]:
-    """Load a debate from session state or generate mock."""
-    # Check if we have a debate in session
+    """Load a debate from session state or generate mock (demo only)."""
+    # Try to load real debates first
     if "current_debate" in st.session_state:
         return st.session_state.current_debate
 
-    # Generate mock for demo
-    if "demo_debate_loaded" not in st.session_state:
-        st.session_state.current_debate = generate_mock_debate()
-        st.session_state.demo_debate_loaded = True
+    # Check for real debate history
+    real_debates = load_real_debates()
+    if real_debates:
+        return real_debates[0]
 
-    return st.session_state.get("current_debate")
+    # Only generate mock if explicitly requested (demo mode)
+    # or if no real data available
+    if st.session_state.get("demo_mode") or st.session_state.get("force_mock_debate"):
+        if "demo_debate_loaded" not in st.session_state:
+            st.session_state.current_debate = generate_mock_debate()
+            st.session_state.demo_debate_loaded = True
+        return st.session_state.get("current_debate")
+
+    return None
 
 
 def render_empty_debates() -> None:
@@ -333,7 +367,9 @@ def render_empty_debates() -> None:
         </div>
         """, unsafe_allow_html=True)
 
-        if st.button("🎲 Load Demo Debate", use_container_width=True):
+        if st.button("🎲 Load Demo Debate (Preview Only)", use_container_width=True):
+            st.session_state.demo_mode = True
+            st.session_state.force_mock_debate = True
             st.session_state.current_debate = generate_mock_debate()
             st.session_state.demo_debate_loaded = True
             st.rerun()
@@ -440,13 +476,8 @@ def render_argument(argument: Argument, perspectives: List[DebatePerspective]) -
         PersuasionStrength.VERY_STRONG: "💪💪💪💪",
     }
 
-    # Check if speaker is a known SME persona
-    sme_persona_names = [
-        "IAM Architect", "Cloud Architect", "Security Analyst",
-        "Data Engineer", "AI/ML Engineer", "Test Engineer",
-        "Business Analyst", "Technical Writer", "DevOps Engineer",
-        "Frontend Developer",
-    ]
+    # Check if speaker is a known SME persona (loaded from registry)
+    sme_persona_names = get_real_sme_names()
     is_sme = argument.speaker in sme_persona_names
     sme_badge_html = (
         ' <span style="background: #28a745; color: white; padding: 2px 8px; '

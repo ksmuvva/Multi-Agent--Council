@@ -311,6 +311,18 @@ def render_agent_card(activity: AgentActivity) -> None:
 def render_agent_monitor() -> None:
     """Render the main agent activity monitoring interface."""
     activities = get_agent_activities()
+    demo_mode = is_demo_mode()
+
+    # Demo mode warning
+    if demo_mode:
+        st.warning("""
+        ⚠️ **Demo Mode Active**: Displaying simulated agent activities for demonstration purposes.
+
+        Real-time agent monitoring requires:
+        - An active session with the orchestrator
+        - Event streaming enabled (via setup_agent_event_subscriptions)
+        - Agents executing through the multi-agent system
+        """)
 
     # Header
     col1, col2, col3, col4 = st.columns(4)
@@ -342,7 +354,7 @@ def render_agent_monitor() -> None:
     st.markdown("---")
 
     # Controls
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
     with col1:
         if st.button("🔄 Refresh", use_container_width=True):
@@ -356,6 +368,12 @@ def render_agent_monitor() -> None:
     with col3:
         auto_refresh = st.checkbox("🔴 Auto-refresh", value=True)
 
+    with col4:
+        demo_toggle = st.checkbox("🎭 Demo Mode", value=demo_mode)
+        if demo_toggle != demo_mode:
+            set_demo_mode(demo_toggle)
+            st.rerun()
+
     st.markdown("---")
 
     # Render each tier
@@ -366,7 +384,10 @@ def render_agent_monitor() -> None:
         render_tier_header(tier, len(tier_activities), active_count)
 
         if not tier_activities:
-            st.info(f"No {tier.value} agents active")
+            if demo_mode:
+                st.info(f"No {tier.value} agents in demo. Click '🔄 Refresh' to regenerate demo data.")
+            else:
+                st.info(f"No {tier.value} agents active. Start a task or enable Demo Mode to see activity.")
         else:
             for activity in tier_activities:
                 render_agent_card(activity)
@@ -558,11 +579,35 @@ def setup_agent_event_subscriptions(session_id: Optional[str] = None) -> None:
 
 
 # =============================================================================
-# Mock Data Generator (for testing)
+# Demo Mode Management
+# =============================================================================
+
+def is_demo_mode() -> bool:
+    """Check if demo mode is enabled."""
+    return st.session_state.get("agent_panel_demo_mode", False)
+
+
+def set_demo_mode(enabled: bool) -> None:
+    """Set demo mode for the agent panel."""
+    st.session_state.agent_panel_demo_mode = enabled
+    if enabled:
+        generate_mock_activities()
+        _logger.info("agent_panel.demo_mode_enabled")
+    else:
+        clear_agent_activities()
+        _logger.info("agent_panel.demo_mode_disabled")
+
+
+# =============================================================================
+# Mock Data Generator (for testing/demo)
 # =============================================================================
 
 def generate_mock_activities() -> None:
-    """Generate mock agent activities for testing the UI."""
+    """Generate mock agent activities for testing/demo purposes.
+
+    NOTE: This is for demonstration only. Real agent activities come from
+    the event system via setup_agent_event_subscriptions().
+    """
     clear_agent_activities()
 
     # Council agents

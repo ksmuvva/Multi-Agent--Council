@@ -14,6 +14,9 @@ from .agent_panel import (
     clear_agent_activities,
     render_agent_monitor,
     render_compact_agent_panel,
+    is_demo_mode,
+    set_demo_mode,
+    generate_mock_activities,
 )
 
 from .results_inspector import (
@@ -74,6 +77,9 @@ __all__ = [
     "clear_agent_activities",
     "render_agent_monitor",
     "render_compact_agent_panel",
+    "is_demo_mode",
+    "set_demo_mode",
+    "generate_mock_activities",
     # Results inspector
     "OutputFormat",
     "ContentType",
