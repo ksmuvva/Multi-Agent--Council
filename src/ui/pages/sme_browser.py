@@ -8,12 +8,26 @@ SMEs provide domain expertise on-demand during agent execution.
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
+import sys
+from pathlib import Path
 
 import streamlit as st
 
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+from src.core.sme_registry import (
+    SMEPersona as RegistrySMEPersona,
+    get_persona,
+    get_all_personas as get_registry_personas,
+    find_personas_by_keywords,
+    find_personas_by_domain,
+    get_persona_for_display,
+)
+
 
 # =============================================================================
-# SME Data Structures
+# SME Data Structures (for display)
 # =============================================================================
 
 class InteractionMode(str, Enum):
@@ -39,7 +53,7 @@ class SMEDomain(str, Enum):
 
 @dataclass
 class SMEPersona:
-    """SME persona data."""
+    """SME persona data for display."""
     persona_id: str
     name: str
     domain: str
@@ -52,11 +66,92 @@ class SMEPersona:
     color: str = "#007bff"
 
 
+# Icons for different SME domains
+DOMAIN_ICONS = {
+    "Identity and Access Management": "🔐",
+    "Cloud Infrastructure Architecture": "☁️",
+    "Application & Infrastructure Security": "🛡️",
+    "Data Engineering": "📊",
+    "AI/ML Engineering": "🤖",
+    "Test Engineering": "🧪",
+    "Business Analysis": "💼",
+    "Technical Writing": "📝",
+    "DevOps Engineering": "⚙️",
+    "Frontend Development & UI/UX": "🎨",
+}
+
+# Default icon for unknown domains
+DEFAULT_ICON = "👤"
+
+
 # =============================================================================
-# SME Registry (subset of full registry)
+# Helper Functions
 # =============================================================================
 
-SME_REGISTRY_DATA: List[Dict[str, Any]] = [
+def _get_domain_icon(domain: str) -> str:
+    """Get icon for a domain."""
+    return DOMAIN_ICONS.get(domain, DEFAULT_ICON)
+
+
+def _convert_registry_persona(persona: RegistrySMEPersona) -> SMEPersona:
+    """Convert a registry SMEPersona to display SMEPersona."""
+    # Convert InteractionMode enums to strings
+    modes = [m.value if hasattr(m, 'value') else m for m in persona.interaction_modes]
+
+    return SMEPersona(
+        persona_id=persona.persona_id,
+        name=persona.name,
+        domain=persona.domain,
+        description=persona.description or persona.name,  # Fallback to name if description is empty
+        trigger_keywords=persona.trigger_keywords,
+        skill_files=persona.skill_files,
+        interaction_modes=modes,
+        default_model=persona.default_model,
+        icon=_get_domain_icon(persona.domain),
+        color="#007bff",
+    )
+
+
+def get_all_personas() -> List[SMEPersona]:
+    """Get all SME personas from the real registry."""
+    registry_personas = get_registry_personas()  # Returns Dict[str, SMEPersona]
+    return [
+        _convert_registry_persona(persona)
+        for persona in registry_personas.values()
+    ]
+
+
+def get_persona(persona_id: str) -> Optional[SMEPersona]:
+    """Get a specific persona by ID from the real registry."""
+    persona = get_persona(persona_id)  # From src.core.sme_registry
+    if persona:
+        return _convert_registry_persona(persona)
+    return None
+
+
+def find_personas_by_keywords(keywords: List[str]) -> List[SMEPersona]:
+    """Find personas matching given keywords from the real registry."""
+    registry_personas = find_personas_by_keywords(keywords)  # From src.core.sme_registry
+    return [
+        _convert_registry_persona(persona)
+        for persona in registry_personas
+    ]
+
+
+def find_personas_by_domain(domain: str) -> List[SMEPersona]:
+    """Find personas by domain from the real registry."""
+    registry_personas = find_personas_by_domain([domain])  # From src.core.sme_registry
+    return [
+        _convert_registry_persona(persona)
+        for persona in registry_personas
+    ]
+
+
+def get_domains() -> List[str]:
+    """Get list of all domains from the real registry."""
+    registry_personas = get_registry_personas()
+    domains = set(persona.domain for persona in registry_personas.values())
+    return sorted(domains)
     {
         "persona_id": "iam_architect",
         "name": "IAM Architect",
@@ -181,59 +276,6 @@ SME_REGISTRY_DATA: List[Dict[str, Any]] = [
 
 
 # =============================================================================
-# Helper Functions
-# =============================================================================
-
-def get_all_personas() -> List[SMEPersona]:
-    """Get all SME personas."""
-    return [
-        SMEPersona(**data)
-        for data in SME_REGISTRY_DATA
-    ]
-
-
-def get_persona(persona_id: str) -> Optional[SMEPersona]:
-    """Get a specific persona by ID."""
-    for data in SME_REGISTRY_DATA:
-        if data["persona_id"] == persona_id:
-            return SMEPersona(**data)
-    return None
-
-
-def find_personas_by_keywords(keywords: List[str]) -> List[SMEPersona]:
-    """Find personas matching given keywords."""
-    keywords_lower = [k.lower() for k in keywords]
-
-    matching = []
-    for data in SME_REGISTRY_DATA:
-        trigger_keywords = [k.lower() for k in data["trigger_keywords"]]
-        if any(kw in trigger_keywords for kw in keywords_lower):
-            matching.append(SMEPersona(**data))
-
-    return matching
-
-
-def find_personas_by_domain(domain: str) -> List[SMEPersona]:
-    """Find personas by domain."""
-    domain_lower = domain.lower()
-
-    matching = []
-    for data in SME_REGISTRY_DATA:
-        if domain_lower in data["domain"].lower():
-            matching.append(SMEPersona(**data))
-
-    return matching
-
-
-def get_domains() -> List[str]:
-    """Get list of all domains."""
-    domains = set()
-    for data in SME_REGISTRY_DATA:
-        domains.add(data["domain"])
-    return sorted(domains)
-
-
-# =============================================================================
 # Rendering
 # =============================================================================
 
@@ -256,10 +298,11 @@ def render_sme_browser() -> None:
         )
 
     with col2:
-        # Get all unique interaction modes
+        # Get all unique interaction modes from personas
+        all_personas = get_all_personas()
         all_modes = set()
-        for data in SME_REGISTRY_DATA:
-            all_modes.update(data["interaction_modes"])
+        for persona in all_personas:
+            all_modes.update(persona.interaction_modes)
         mode_filter = st.multiselect(
             "Filter by Interaction Mode",
             sorted(all_modes),

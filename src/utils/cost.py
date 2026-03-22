@@ -389,7 +389,21 @@ class CostTracker:
         try:
             from src.config.settings import get_settings
             max_budget = get_settings().max_budget
-        except Exception:
+        except ImportError as e:
+            self.logger.error(
+                "cost_tracker.settings_import_failed",
+                error=str(e),
+                message="Failed to import settings - using default budget",
+                fallback_budget=5.0,
+            )
+            max_budget = 5.0
+        except Exception as e:
+            self.logger.error(
+                "cost_tracker.settings_load_failed",
+                error=str(e),
+                message="Failed to load settings - using default budget",
+                fallback_budget=5.0,
+            )
             max_budget = 5.0
 
         state = self.get_budget_state(session_id, max_budget)
@@ -560,8 +574,23 @@ class CostLimit:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # Session remains for inspection
-        pass
+        """Exit the cost tracking session.
+
+        The session is kept for inspection rather than being deleted.
+        Logs session summary for debugging.
+        """
+        if self.tracker and self.session_id:
+            session = self.tracker.get_session(self.session_id)
+            if session:
+                self.tracker._logger.debug(
+                    "cost_session.context_exit",
+                    session_id=self.session_id,
+                    total_cost=session.total_cost_usd,
+                    total_tokens=session.total_tokens,
+                    duration_seconds=session.duration_seconds,
+                )
+        # Return None to indicate no exception handling
+        return None
 
 
 # =============================================================================

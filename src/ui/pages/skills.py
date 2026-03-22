@@ -197,6 +197,8 @@ def render_skills_catalogue() -> None:
 
 
 # Mapping of skill names to the agents that use them
+# NOTE: This is a reference mapping for display purposes.
+# Actual skill usage is defined in agent configurations and SME persona files.
 SKILL_AGENT_MAP: Dict[str, List[str]] = {
     "code-generation": ["Executor", "Code Reviewer"],
     "document-creation": ["Formatter"],
@@ -208,18 +210,11 @@ SKILL_AGENT_MAP: Dict[str, List[str]] = {
 }
 
 # SME registry for skill_files lookup
+# NOTE: This maps skill file names to SME personas that reference them.
+# Actual SME skill assignments are in config/sme/*.md files.
 SME_SKILL_MAP: Dict[str, List[str]] = {
-    "sailpoint-test-engineer": ["IAM Architect"],
-    "azure-architect": ["IAM Architect", "Cloud Architect"],
-    "aws-solutions-architect": ["Cloud Architect"],
-    "security-specialist": ["Security Analyst"],
-    "data-engineering": ["Data Engineer"],
-    "ml-engineering": ["AI/ML Engineer"],
-    "test-automation": ["Test Engineer"],
-    "business-analysis": ["Business Analyst"],
-    "technical-writing": ["Technical Writer"],
-    "devops-engineering": ["DevOps Engineer"],
-    "frontend-development": ["Frontend Developer"],
+    "architecture-design": ["Cloud Architect", "IAM Architect"],
+    "code-generation": ["Frontend Developer"],
 }
 
 

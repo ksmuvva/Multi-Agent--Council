@@ -120,6 +120,13 @@ class FormatterAgent:
         try:
             format_enum = OutputFormat(target_format.lower())
         except ValueError:
+            # Invalid format requested - log and infer from content
+            self.logger.warning(
+                "formatter.invalid_format_requested",
+                requested_format=target_format,
+                message=f"Unknown format '{target_format}', inferring from content",
+                valid_formats=[f.value for f in OutputFormat],
+            )
             format_enum = self._infer_format(raw_content, context)
             self.logger.info("Format inferred from content", inferred_format=format_enum.value)
 
@@ -1057,8 +1064,18 @@ class FormatterAgent:
                 import yaml
                 yaml.safe_load(code)
             except ImportError:
-                # yaml not available; log and skip validation
-                self.logger.warning("PyYAML not installed; skipping YAML validation")
+                # yaml not available; mark validation as not performed
+                self.logger.error(
+                    "formatter.yaml_not_available",
+                    message="PyYAML library is not installed",
+                    suggestion="Install with: pip install pyyaml",
+                )
+                # Indicate validation couldn't be performed
+                valid = False
+                errors.append(
+                    "⚠️ YAML validation skipped: PyYAML library not installed. "
+                    "Install with: pip install pyyaml"
+                )
             except yaml.YAMLError as e:
                 valid = False
                 if hasattr(e, "problem_mark") and e.problem_mark is not None:
@@ -1071,6 +1088,7 @@ class FormatterAgent:
             "valid": valid,
             "errors": errors,
             "language": language,
+            "validation_performed": True,  # Indicate validation was attempted
         }
 
     # ========================================================================
@@ -1152,8 +1170,10 @@ class FormatterAgent:
                 return OutputFormat(context["format"].lower())
             except ValueError:
                 self.logger.warning(
-                    "Unknown output format, falling back to auto-detection",
+                    "formatter.invalid_context_format",
                     requested_format=context["format"],
+                    valid_formats=[f.value for f in OutputFormat],
+                    message="Unknown format in context, falling back to auto-detection",
                 )
 
         # Check content type

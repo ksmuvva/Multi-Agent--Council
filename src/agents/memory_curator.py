@@ -1025,11 +1025,23 @@ class MemoryCuratorAgent:
 
         # Parse YAML
         frontmatter = {}
+        parse_error = None
         if HAS_YAML:
             try:
                 frontmatter = yaml.safe_load(frontmatter_text) or {}
             except yaml.YAMLError as e:
-                self.logger.warning("Failed to parse YAML frontmatter", error=str(e))
+                parse_error = str(e)
+                self.logger.error(
+                    "memory_curator.yaml_parse_failed",
+                    error=parse_error,
+                    frontmatter_preview=frontmatter_text[:200] if frontmatter_text else "",
+                    message="Failed to parse YAML frontmatter - using empty frontmatter",
+                )
+                # Include error info in frontmatter for tracking
+                frontmatter = {
+                    "_yaml_parse_error": parse_error,
+                    "_yaml_parse_failed": True,
+                }
 
         return frontmatter, body
 

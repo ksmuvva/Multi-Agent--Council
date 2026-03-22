@@ -8,16 +8,32 @@ workflows of multiple agents for common tasks.
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
+import sys
+from pathlib import Path
 
 import streamlit as st
 
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+from src.core.ensemble import (
+    EnsembleType as CoreEnsembleType,
+    EnsemblePattern as CoreEnsemblePattern,
+    EnsembleConfig as CoreEnsembleConfig,
+    AgentAssignment as CoreAgentAssignment,
+    AgentRole,
+    get_all_ensembles,
+    get_ensemble,
+    ENSEMBLE_REGISTRY,
+)
+
 
 # =============================================================================
-# Ensemble Types
+# UI-Only Data Structures
 # =============================================================================
 
 class EnsembleType(str, Enum):
-    """Types of ensemble patterns."""
+    """Types of ensemble patterns (for UI)."""
     ARCHITECTURE_REVIEW = "architecture_review_board"
     CODE_SPRINT = "code_sprint"
     RESEARCH_COUNCIL = "research_council"
@@ -27,7 +43,7 @@ class EnsembleType(str, Enum):
 
 @dataclass
 class EnsembleAgent:
-    """An agent in an ensemble."""
+    """An agent in an ensemble (for display)."""
     name: str
     role: str
     description: str
@@ -40,7 +56,7 @@ class EnsembleAgent:
 
 @dataclass
 class EnsemblePattern:
-    """An ensemble pattern definition."""
+    """An ensemble pattern definition (for display)."""
     pattern_id: str
     name: str
     description: str
@@ -52,122 +68,85 @@ class EnsemblePattern:
     color: str = "#007bff"
 
 
-# =============================================================================
-# Ensemble Definitions
-# =============================================================================
-
-ENSEMBLE_PATTERNS: List[EnsemblePattern] = [
-    EnsemblePattern(
-        pattern_id="architecture_review_board",
-        name="Architecture Review Board",
-        description="Comprehensive architecture review with multiple perspectives",
-        use_case="Designing system architectures, evaluating technical decisions, reviewing infrastructure patterns",
-        agents=[
-            EnsembleAgent("Analyst", "Analyzer", "Analyzes requirements and constraints"),
-            EnsembleAgent("CouncilChair", "Facilitator", "Selects relevant SMEs"),
-            EnsembleAgent("cloud_architect", "SME", "Provides cloud architecture expertise", dependencies=["CouncilChair"]),
-            EnsembleAgent("security_analyst", "SME", "Provides security review", dependencies=["CouncilChair"]),
-            EnsembleAgent("Planner", "Planner", "Creates evaluation plan", dependencies=["Analyst"]),
-            EnsembleAgent("Executor", "Synthesizer", "Synthesizes recommendations", dependencies=["Planner", "cloud_architect", "security_analyst"]),
-            EnsembleAgent("Critic", "Reviewer", "Challenges assumptions", dependencies=["Executor"]),
-            EnsembleAgent("Reviewer", "Finalizer", "Produces final recommendations", dependencies=["Critic"]),
-        ],
-        estimated_duration="10-15 minutes",
-        tier_requirement=3,
-        icon="🏛️",
-        color="#7950f2",
-    ),
-    EnsemblePattern(
-        pattern_id="code_sprint",
-        name="Code Sprint",
-        description="Rapid code generation with quality gates",
-        use_case="Feature development, bug fixes, code refactoring",
-        agents=[
-            EnsembleAgent("Analyst", "Analyzer", "Analyzes requirements"),
-            EnsembleAgent("Planner", "Planner", "Creates implementation plan"),
-            EnsembleAgent("Executor", "Generator", "Generates code", dependencies=["Planner"]),
-            EnsembleAgent("CodeReviewer", "Reviewer", "Reviews for quality and security", dependencies=["Executor"]),
-            EnsembleAgent("Verifier", "Validator", "Validates correctness", dependencies=["Executor"]),
-            EnsembleAgent("Formatter", "Formatter", "Formats final output", dependencies=["CodeReviewer", "Verifier"]),
-        ],
-        estimated_duration="5-8 minutes",
-        tier_requirement=2,
-        icon="💻",
-        color="#28a745",
-    ),
-    EnsemblePattern(
-        pattern_id="research_council",
-        name="Research Council",
-        description="Comprehensive research with multiple SME perspectives",
-        use_case="Technology evaluation, market research, competitive analysis",
-        agents=[
-            EnsembleAgent("Analyst", "Coordinator", "Defines research scope"),
-            EnsembleAgent("CouncilChair", "SME Selector", "Selects domain experts"),
-            EnsembleAgent("Researcher", "Researcher", "Conducts web research"),
-            EnsembleAgent("ai_ml_engineer", "SME", "AI/ML domain perspective", dependencies=["CouncilChair"]),
-            EnsembleAgent("data_engineer", "SME", "Data engineering perspective", dependencies=["CouncilChair"]),
-            EnsembleAgent("Executor", "Synthesizer", "Synthesizes findings", dependencies=["Researcher", "ai_ml_engineer", "data_engineer"]),
-            EnsembleAgent("Verifier", "Fact-checker", "Verifies sources", dependencies=["Executor"]),
-        ],
-        estimated_duration="8-12 minutes",
-        tier_requirement=3,
-        icon="🔍",
-        color="#17a2b8",
-    ),
-    EnsemblePattern(
-        pattern_id="document_assembly",
-        name="Document Assembly",
-        description="Multi-format document creation with technical review",
-        use_case="Technical documentation, API docs, user guides, reports",
-        agents=[
-            EnsembleAgent("Analyst", "Planner", "Analyzes documentation requirements"),
-            EnsembleAgent("technical_writer", "SME", "Provides writing expertise"),
-            EnsembleAgent("Executor", "Author", "Drafts content"),
-            EnsembleAgent("Critic", "Reviewer", "Reviews for clarity", dependencies=["Executor"]),
-            EnsembleAgent("Formatter", "Publisher", "Formats in multiple outputs", dependencies=["Critic"]),
-        ],
-        estimated_duration="5-10 minutes",
-        tier_requirement=2,
-        icon="📚",
-        color="#fd7e14",
-    ),
-    EnsemblePattern(
-        pattern_id="requirements_workshop",
-        name="Requirements Workshop",
-        description="Requirements elicitation and analysis",
-        use_case="Gathering requirements, defining acceptance criteria, user stories",
-        agents=[
-            EnsembleAgent("Clarifier", "Interviewer", "Identifies unclear requirements"),
-            EnsembleAgent("business_analyst", "SME", "Provides BA expertise"),
-            EnsembleAgent("Analyst", "Analyzer", "Analyzes requirements"),
-            EnsembleAgent("Planner", "Structurer", "Structures user stories", dependencies=["Analyst"]),
-            EnsembleAgent("Critic", "Validator", "Challenges assumptions", dependencies=["Planner"]),
-            EnsembleAgent("Formatter", "Documenter", "Creates requirement document", dependencies=["Critic"]),
-        ],
-        estimated_duration="6-10 minutes",
-        tier_requirement=2,
-        icon="📋",
-        color="#20c997",
-    ),
-]
+# Icons and colors for ensembles
+ENSEMBLE_STYLES: Dict[str, Dict[str, str]] = {
+    "architecture_review_board": {"icon": "🏛️", "color": "#7950f2", "name": "Architecture Review Board"},
+    "code_sprint": {"icon": "⚡", "color": "#fd7e14", "name": "Code Sprint"},
+    "research_council": {"icon": "🔍", "color": "#20c997", "name": "Research Council"},
+    "document_assembly": {"icon": "📄", "color": "#0dcaf0", "name": "Document Assembly"},
+    "requirements_workshop": {"icon": "📋", "color": "#198754", "name": "Requirements Workshop"},
+}
 
 
 # =============================================================================
 # Helper Functions
 # =============================================================================
 
+def _convert_agent_assignment(agent: CoreAgentAssignment) -> EnsembleAgent:
+    """Convert a core AgentAssignment to UI EnsembleAgent."""
+    return EnsembleAgent(
+        name=agent.agent_name,
+        role=agent.role.value,
+        description=f"{agent.role.value} in {agent.phase if agent.phase else 'ensemble'}",
+        dependencies=agent.dependencies or [],
+    )
+
+
+def _convert_ensemble_to_ui(
+    pattern_id: str,
+    ensemble: CoreEnsemblePattern,
+) -> EnsemblePattern:
+    """Convert a core EnsemblePattern to UI EnsemblePattern."""
+    # Get style info
+    style = ENSEMBLE_STYLES.get(pattern_id, {"icon": "🎭", "color": "#007bff", "name": pattern_id})
+
+    # Get a sample config to extract agents
+    config = ensemble.get_default_config()
+    agents = []
+    if config and config.agent_assignments:
+        agents = [_convert_agent_assignment(a) for a in config.agent_assignments]
+
+    return EnsemblePattern(
+        pattern_id=pattern_id,
+        name=style["name"],
+        description=ensemble.__class__.__doc__ or style["name"],
+        use_case=getattr(ensemble, "use_case", "Multi-agent collaboration"),
+        agents=agents,
+        estimated_duration="5-15 minutes",  # Default estimate
+        tier_requirement=2,  # Default tier
+        icon=style["icon"],
+        color=style["color"],
+    )
+
+
 def get_all_ensembles() -> List[EnsemblePattern]:
-    """Get all ensemble patterns."""
-    return ENSEMBLE_PATTERNS
+    """Get all ensemble patterns from the real registry."""
+    ensembles = []
+    for ensemble_type, ensemble_class in ENSEMBLE_REGISTRY.items():
+        ensemble_instance = ensemble_class()
+        ui_ensemble = _convert_ensemble_to_ui(ensemble_type.value, ensemble_instance)
+        ensembles.append(ui_ensemble)
+    return ensembles
 
 
 def get_ensemble(pattern_id: str) -> Optional[EnsemblePattern]:
-    """Get an ensemble by ID."""
-    for ensemble in ENSEMBLE_PATTERNS:
-        if ensemble.pattern_id == pattern_id:
-            return ensemble
-    return None
+    """Get an ensemble by ID from the real registry."""
+    # Find matching core ensemble type
+    core_type = None
+    for et in CoreEnsembleType:
+        if et.value == pattern_id:
+            core_type = et
+            break
 
+    if core_type:
+        ensemble = get_ensemble(core_type)
+        if ensemble:
+            return _convert_ensemble_to_ui(pattern_id, ensemble)
+    return None
+    EnsemblePattern(
+        pattern_id="architecture_review_board",
+        name="Architecture Review Board",
+        description="Comprehensive architecture review with multiple perspectives",
 
 # =============================================================================
 # Rendering
