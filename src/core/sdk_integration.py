@@ -511,17 +511,67 @@ def _simulate_response(
     """
     Simulate a response when no API is available.
 
-    This is the fallback for development/testing without API keys.
-    WARNING: Not for production use - returns simulated data.
+    ⚠️ CRITICAL WARNING: This is the LAST RESORT fallback when:
+    - No Claude Agent SDK is available
+    - No Anthropic API key is configured
+    - No GLM API key is configured
+
+    This function returns MOCK DATA for development/testing only.
+    In production, this should raise an error instead of returning fake results.
     """
-    get_logger("sdk_integration").warning(
-        f"Using simulated response - no API available for agent '{sdk_kwargs.get('name', 'Agent')}'"
-    )
+    logger = get_logger("sdk_integration")
     agent_name = sdk_kwargs.get("name", "Agent")
+
+    # Log explicit warnings about simulation
+    logger.error(
+        "sdk_integration.simulation_mode_active",
+        agent=agent_name,
+        warning="NO_API_KEYS_CONFIGURED",
+        message="All API fallbacks exhausted - returning MOCK DATA",
+    )
+
+    # Get settings to check if this is a dev environment
+    settings = get_settings()
+    is_development = getattr(settings, 'environment', 'production') != 'production'
+
+    if not is_development:
+        # In production, we should fail rather than return fake data
+        logger.error(
+            "sdk_integration.production_simulation_blocked",
+            message="Refusing to return simulated data in production environment"
+        )
+        raise RuntimeError(
+            f"⚠️ PRODUCTION ERROR: No API keys configured for agent '{agent_name}'. "
+            "Cannot proceed without valid API credentials. "
+            "Please configure ANTHROPIC_API_KEY or GLM_API_KEY."
+        )
+
+    # In development, return explicit mock output with clear markers
+    simulated_output = f"""
+╔═══════════════════════════════════════════════════════════════════════════════
+║ ⚠️  SIMULATED OUTPUT - NO API CONFIGURED                                    ║
+║ Agent: {agent_name:<65} ║
+╚═══════════════════════════════════════════════════════════════════════════════
+
+This is MOCK DATA returned because no API keys are configured.
+To use real agent outputs, configure one of:
+- ANTHROPIC_API_KEY (for Claude)
+- GLM_API_KEY (for GLM API)
+
+Input (first 200 chars):
+{input_data[:200]}...
+
+╔═══════════════════════════════════════════════════════════════════════════════
+║ To configure API keys, set up your .env file or environment variables        ║
+╚═══════════════════════════════════════════════════════════════════════════════
+"""
+
     return {
-        "output": f"[Simulated output from {agent_name}] Processed: {input_data[:200]}...",
-        "tokens_used": 500,
-        "cost_usd": 0.005,
+        "output": simulated_output.strip(),
+        "tokens_used": 0,  # No tokens were actually used
+        "cost_usd": 0.0,  # No cost was incurred
+        "simulated": True,  # Explicit marker
+        "warning": "This output is simulated - configure API keys for real results",
     }
 
 

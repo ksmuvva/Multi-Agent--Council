@@ -165,22 +165,38 @@ class SMEAdvisoryReport(BaseModel):
     @model_validator(mode="after")
     def validate_report_matches_mode(self) -> "SMEAdvisoryReport":
         """Ensure the correct report field is populated for the interaction mode."""
+        from src.utils.logging import get_logger
+        logger = get_logger("sme_schema")
+
         mode_report_map = {
             SMEInteractionMode.ADVISOR: "advisor_report",
             SMEInteractionMode.CO_EXECUTOR: "co_executor_report",
             SMEInteractionMode.DEBATER: "debater_report",
         }
         expected_field = mode_report_map.get(self.interaction_mode)
-        if expected_field and getattr(self, expected_field) is None:
-            # Set a warning but don't fail - the report may be populated later
-            pass
+
+        # Validate that the expected report field is populated
+        if expected_field:
+            actual_report = getattr(self, expected_field, None)
+            if actual_report is None:
+                # Log a warning but don't fail - the report may be populated later
+                logger.warning(
+                    "sme_schema.missing_mode_report",
+                    interaction_mode=self.interaction_mode.value,
+                    expected_field=expected_field,
+                    sme_persona=self.sme_persona
+                )
+
         # Ensure other mode reports are not populated
         for mode, field_name in mode_report_map.items():
-            if mode != self.interaction_mode and getattr(self, field_name) is not None:
-                raise ValueError(
-                    f"Report field '{field_name}' should not be populated "
-                    f"when interaction_mode is '{self.interaction_mode.value}'"
-                )
+            if mode != self.interaction_mode:
+                other_report = getattr(self, field_name, None)
+                if other_report is not None:
+                    raise ValueError(
+                        f"Report field '{field_name}' should not be populated "
+                        f"when interaction_mode is '{self.interaction_mode.value}'. "
+                        f"Expected '{expected_field}' for mode '{self.interaction_mode.value}'."
+                    )
         return self
 
     model_config = ConfigDict(

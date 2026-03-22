@@ -250,6 +250,21 @@ def render_advanced_options() -> Dict[str, Any]:
             index=0,
         )
 
+        # Demo Mode (for testing without API keys)
+        options["demo_mode"] = st.checkbox(
+            "🎭 Demo Mode (No Real API)",
+            value=st.session_state.get("chat_demo_mode", False),
+            help="⚠️ Use simulated responses instead of real API calls. For testing only.",
+        )
+        if options["demo_mode"]:
+            st.warning(
+                "⚠️ **Demo Mode Active**: Responses will be SIMULATED. "
+                "No real AI processing will occur. Configure API keys for real results."
+            )
+            st.session_state.chat_demo_mode = True
+        else:
+            st.session_state.chat_demo_mode = False
+
     return options
 
 
@@ -525,7 +540,10 @@ def execute_with_orchestrator(
     options: Dict[str, Any],
 ) -> None:
     """
-    Execute user request through the real multi-agent orchestrator.
+    Execute user request through the multi-agent system.
+
+    In demo mode, uses simulated responses.
+    In normal mode, uses the real multi-agent orchestrator.
 
     Args:
         prompt: User's prompt
@@ -533,6 +551,12 @@ def execute_with_orchestrator(
         output_format: Desired output format
         options: Processing options
     """
+    # Check for demo mode
+    if options.get("demo_mode", False):
+        st.warning("⚠️ Using Demo Mode - Responses are SIMULATED")
+        simulate_agent_response(prompt, tier, output_format, options)
+        return
+
     try:
         # Get settings
         settings = get_settings()
@@ -631,7 +655,10 @@ def simulate_agent_response(
     options: Dict[str, Any],
 ) -> None:
     """
-    Simulate an agent response (placeholder for actual integration).
+    Simulate an agent response for DEMO MODE only.
+
+    ⚠️ WARNING: This function returns MOCK DATA for demonstration purposes.
+    It should only be called when demo_mode is explicitly enabled.
 
     Args:
         prompt: User's prompt
@@ -643,11 +670,11 @@ def simulate_agent_response(
     processing_message = ChatMessage(
         message_id=f"msg_{int(time.time() * 1000000)}",
         role=MessageRole.ASSISTANT,
-        content="",
+        content="🎭 **Demo Mode Active** - Generating simulated response...",
         timestamp=datetime.now(),
         status=MessageStatus.PROCESSING,
         tier=tier,
-        metadata={"tier": tier},
+        metadata={"tier": tier, "demo_mode": True},
     )
 
     add_message(processing_message)
@@ -655,16 +682,28 @@ def simulate_agent_response(
     # Simulate processing delay
     time.sleep(1)
 
-    # Update with response
+    # Update with simulated response
     response = generate_mock_response(prompt, tier, output_format)
 
-    processing_message.content = response
+    # Add demo mode header to the response
+    demo_header = """
+╔═══════════════════════════════════════════════════════════════════════════════
+║ ⚠️  DEMO MODE - SIMULATED RESPONSE                                           ║
+║ This output is MOCK DATA for demonstration purposes only.                    ║
+║ Configure API keys (ANTHROPIC_API_KEY or GLM_API_KEY) for real AI results.   ║
+╚═══════════════════════════════════════════════════════════════════════════════
+
+"""
+
+    processing_message.content = demo_header + response
     processing_message.status = MessageStatus.COMPLETED
     processing_message.metadata = {
         "tier": tier,
         "duration": 1.5,
-        "tokens": 150 + tier * 100,
-        "cost": 0.01 + tier * 0.005,
+        "tokens": 0,  # No tokens were actually used
+        "cost": 0.0,  # No cost was incurred
+        "demo_mode": True,
+        "simulated": True,
     }
 
     # Show download buttons for any artifacts in the response

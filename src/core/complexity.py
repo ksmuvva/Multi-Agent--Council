@@ -99,7 +99,7 @@ TIER_CONFIG = {
         "name": "Standard",
         "description": "Moderate complexity tasks",
         "active_agents": [
-            "Orchestrator", "Analyst", "Planner", "Clarifier",
+            "Analyst", "Planner", "Clarifier",
             "Executor", "Verifier", "Reviewer", "Formatter"
         ],
         "agent_count": 7,

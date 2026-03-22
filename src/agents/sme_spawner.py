@@ -773,6 +773,7 @@ From a {spawned_sme.domain} perspective, the architecture should follow these pr
 
     def _generate_implementation_section(self, spawned_sme: SpawnedSME, title: str) -> str:
         """Generate an implementation section."""
+        handler_name = spawned_sme.domain.replace(' ', '').replace('&', 'And')
         return f"""
 ## {title}
 
@@ -780,18 +781,59 @@ From a {spawned_sme.domain} perspective, the architecture should follow these pr
 
 ```python
 # Example structure following {spawned_sme.domain} conventions
-class {spawned_sme.domain.replace(' ', '').replace('&', 'And')}Handler:
+class {handler_name}Handler:
+    \"\"\"Handler for {spawned_sme.domain} domain logic.\"\"\"
+
     def __init__(self, config):
         self.config = config
+        self.logger = get_logger(f"{handler_name}Handler")
 
     def process(self, input_data):
-        # Process according to domain standards
-        result = self._apply_domain_logic(input_data)
-        return self._validate_result(result)
+        \"\"\"Process input according to domain standards.\"\"\"
+        try:
+            # Pre-process input
+            validated_data = self._validate_input(input_data)
+
+            # Apply domain-specific logic
+            result = self._apply_domain_logic(validated_data)
+
+            # Post-process and validate result
+            return self._validate_result(result)
+        except Exception as e:
+            self.logger.error("Processing failed", error=str(e))
+            raise
 
     def _apply_domain_logic(self, data):
-        # Domain-specific implementation
-        pass
+        \"\"\"
+        Apply {spawned_sme.domain} specific business logic.
+
+        TODO: Implement domain-specific processing logic here.
+        This is a placeholder that should be replaced with actual implementation.
+
+        Args:
+            data: Validated input data
+
+        Returns:
+            Processed result
+        \"\"\"
+        # Example: Transform data according to domain rules
+        # result = transform(data, rules=self._get_domain_rules())
+        # return result
+
+        raise NotImplementedError(
+            "Domain logic not implemented. "
+            f"Please implement {spawned_sme.domain} specific logic."
+        )
+
+    def _validate_input(self, data):
+        \"\"\"Validate input against domain requirements.\"\"\"
+        # TODO: Implement input validation
+        return data
+
+    def _validate_result(self, result):
+        \"\"\"Validate output meets domain standards.\"\"\"
+        # TODO: Implement output validation
+        return result
 ```
 
 **Key Considerations:**

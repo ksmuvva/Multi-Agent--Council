@@ -206,7 +206,10 @@ class EnsemblePattern(ABC):
     ) -> str:
         """
         Generate a structured output for an agent when no SDK executor
-        is available. Produces role-appropriate analytical content.
+        is available.
+
+        ⚠️ WARNING: This produces SIMULATED OUTPUT when no agent_executor is provided.
+        This should only happen in development/test environments without proper SDK setup.
 
         Args:
             assignment: The agent assignment
@@ -214,47 +217,93 @@ class EnsemblePattern(ABC):
             prior_outputs: Outputs from agents that ran previously
 
         Returns:
-            A structured string output for the agent
+            A structured string output for the agent (SIMULATED)
         """
+        from src.utils.logging import get_logger
+        from src.core.config import get_settings
+
+        logger = get_logger("ensemble")
+
+        # Check if this is a development environment
+        settings = get_settings()
+        is_development = getattr(settings, 'environment', 'production') != 'production'
+
+        if not is_development:
+            logger.error(
+                "ensemble.production_simulation_blocked",
+                agent=assignment.agent_name,
+                role=assignment.role.value,
+            )
+            raise RuntimeError(
+                f"⚠️ PRODUCTION ERROR: No agent_executor provided for '{assignment.agent_name}'. "
+                "Ensemble patterns require a valid agent executor for real agent execution. "
+                "This function should never be called in production."
+            )
+
+        # Log explicit warning about simulation
+        logger.warning(
+            "ensemble.simulation_mode",
+            agent=assignment.agent_name,
+            role=assignment.role.value,
+            task_query=task_query[:100],
+        )
+
         role = assignment.role
         agent_name = assignment.agent_name
         deps = assignment.dependencies
 
+        # Add simulation marker to all outputs
+        sim_header = (
+            "╔═══════════════════════════════════════════════════════════════════════════════\n"
+            f"║ ⚠️  SIMULATED OUTPUT - NO AGENT EXECUTOR PROVIDED                        \n"
+            f"║ Agent: {agent_name:<65} ║\n"
+            f"║ Role: {role.value:<66} ║\n"
+            "╚═══════════════════════════════════════════════════════════════════════════════\n\n"
+        )
+
+        # Generate role-appropriate content
         if role == AgentRole.LEAD:
-            return (
-                f"[{agent_name}] Analysis of task: {task_query}. "
+            content = (
+                f"[{agent_name}] Analysis of task: {task_query}\n"
                 f"Identified key objectives and decomposed into actionable components "
-                f"for downstream agents."
+                f"for downstream agents.\n"
+                f"(SIMULATED - no real agent execution occurred)"
             )
         elif role == AgentRole.QUALITY_GATE:
             dep_summary = ", ".join(deps) if deps else "prior phases"
-            return (
-                f"[{agent_name}] Quality gate review of outputs from {dep_summary}. "
-                f"Validated correctness, completeness, and adherence to standards. "
-                f"Gate status: PASSED."
+            content = (
+                f"[{agent_name}] Quality gate review of outputs from {dep_summary}\n"
+                f"Validated correctness, completeness, and adherence to standards.\n"
+                f"Gate status: PASSED (SIMULATED - no real validation performed)"
             )
         elif role == AgentRole.REVIEWER:
             dep_summary = ", ".join(deps) if deps else "prior phases"
-            return (
-                f"[{agent_name}] Reviewed outputs from {dep_summary}. "
+            content = (
+                f"[{agent_name}] Reviewed outputs from {dep_summary}\n"
                 f"Assessed quality, identified potential improvements, "
-                f"and confirmed alignment with objectives."
+                f"and confirmed alignment with objectives.\n"
+                f"(SIMULATED - no real review performed)"
             )
         elif role == AgentRole.ADVISOR:
-            return (
-                f"[{agent_name}] Domain expert analysis for: {task_query}. "
-                f"Provided specialized recommendations based on domain knowledge."
+            content = (
+                f"[{agent_name}] Domain expert analysis for: {task_query}\n"
+                f"Provided specialized recommendations based on domain knowledge.\n"
+                f"(SIMULATED - no real domain expertise applied)"
             )
         elif role == AgentRole.CONTRIBUTOR:
             dep_summary = ", ".join(deps) if deps else "initial input"
-            return (
-                f"[{agent_name}] Contributed to task based on input from {dep_summary}. "
-                f"Produced deliverable content aligned with ensemble objectives."
+            content = (
+                f"[{agent_name}] Contributed to task based on input from {dep_summary}\n"
+                f"Produced deliverable content aligned with ensemble objectives.\n"
+                f"(SIMULATED - no real contribution made)"
             )
-        else:
-            return (
-                f"[{agent_name}] Observed execution of task: {task_query}."
+        else:  # OBSERVER
+            content = (
+                f"[{agent_name}] Observed execution of task: {task_query}\n"
+                f"(SIMULATED - no real observation occurred)"
             )
+
+        return sim_header + content
 
     def _execute_agents_by_phase(
         self,

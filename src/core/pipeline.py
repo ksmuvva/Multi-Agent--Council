@@ -237,12 +237,23 @@ class ExecutionPipeline:
             # Special handling for Phase 6 (Review) - verdict matrix
             if phase == Phase.PHASE_6_REVIEW:
                 action = self._evaluate_verdict_matrix(result)
-                if action == MatrixAction.EXECUTOR_REVISE:
-                    # Go to Phase 7
+                next_phase = self._handle_verdict_action(action, initial_context)
+
+                # Handle phase transitions based on verdict action
+                if next_phase is not None:
+                    # Jump to the specified phase
+                    if next_phase in phases:
+                        # Find the index of next_phase and continue from there
+                        phase_index = phases.index(next_phase)
+                        # Rebuild the phases list from next_phase onwards
+                        phases = phases[phase_index:]
+                        continue
+                    # If next_phase is not in phases, proceed normally
+                elif action == MatrixAction.PROCEED_TO_FORMATTER:
+                    # Skip to Phase 8
                     continue
-                elif action in [MatrixAction.RESEARCHER_REVERIFY, MatrixAction.FULL_REGENERATION]:
-                    # Loop back to earlier phase
-                    self._handle_verdict_action(action, initial_context)
+                elif action == MatrixAction.EXECUTOR_REVISE:
+                    # The revision was handled, continue to next phase
                     continue
 
             # Special handling for Phase 7 (Revision) - loop back
@@ -324,11 +335,33 @@ class ExecutionPipeline:
         return []
 
     def _get_review_agents(self, context: Optional[Dict[str, Any]] = None) -> List[str]:
-        """Get review agents (can run in parallel)."""
+        """Get review agents (can run in parallel).
+
+        Includes Code Reviewer if code was detected in the solution phase output.
+        """
         agents = ["Verifier", "Critic"]
 
-        # Add Code Reviewer if code was generated in the solution phase
+        # Check if code was generated in the solution phase
+        # First check context (if available from orchestrator)
+        code_generated = False
         if context and context.get("code_generated", False):
+            code_generated = True
+        else:
+            # Fallback: check the solution phase result for code blocks
+            solution_result = self.phase_results.get(Phase.PHASE_5_SOLUTION_GENERATION)
+            if solution_result and solution_result.agent_results:
+                for result in solution_result.agent_results:
+                    if result.output:
+                        output_str = str(result.output)
+                        # Check for common code indicators
+                        if any(marker in output_str for marker in [
+                            "```", "def ", "class ", "import ", "#!/",
+                            "<code>", "function ", "const ", "let "
+                        ]):
+                            code_generated = True
+                            break
+
+        if code_generated:
             agents.append("Code Reviewer")
 
         return agents
@@ -340,15 +373,29 @@ class ExecutionPipeline:
     def _evaluate_verdict_matrix(self, phase_result: PhaseResult) -> MatrixAction:
         """Evaluate verdict matrix based on review results."""
         # Extract verdicts from agent results
-        verifier_verdict = Verdict.PASS
-        critic_verdict = Verdict.PASS
+        # Note: Default to None to detect missing verdicts
+        verifier_verdict = None
+        critic_verdict = None
+        has_verifier = False
+        has_critic = False
 
         for result in phase_result.agent_results:
             if result.agent_name == "Verifier":
                 # Parse verdict from output
                 verifier_verdict = self._parse_verdict(result.output)
+                has_verifier = True
             elif result.agent_name == "Critic":
                 critic_verdict = self._parse_verdict(result.output)
+                has_critic = True
+
+        # Log warning if reviewers are missing
+        logger = get_logger(__name__)
+        if not has_verifier:
+            logger.warning("verdict_matrix.no_verifier", defaulting_to="PASS")
+            verifier_verdict = Verdict.PASS
+        if not has_critic:
+            logger.warning("verdict_matrix.no_critic", defaulting_to="PASS")
+            critic_verdict = Verdict.PASS
 
         # Evaluate matrix
         outcome = evaluate_verdict_matrix(
@@ -362,21 +409,43 @@ class ExecutionPipeline:
         return outcome.action
 
     def _parse_verdict(self, output: Any) -> Verdict:
-        """Parse a verdict from agent output."""
+        """Parse a verdict from agent output.
+
+        Returns FAIL if parsing fails or no verdict found - safer than defaulting to PASS.
+        """
         if isinstance(output, dict):
-            verdict_str = output.get("verdict", "PASS").upper()
-            return Verdict.PASS if verdict_str == "PASS" else Verdict.FAIL
-        return Verdict.PASS
+            verdict_str = output.get("verdict", "").upper()
+            if verdict_str == "PASS":
+                return Verdict.PASS
+            elif verdict_str == "FAIL":
+                return Verdict.FAIL
+        # If output is not a dict or verdict is missing, default to FAIL for safety
+        logger = get_logger(__name__)
+        logger.warning("verdict.parse_failed", output_type=type(output).__name__, defaulting_to="FAIL")
+        return Verdict.FAIL
 
     def _handle_verdict_action(
         self,
         action: MatrixAction,
         context: Dict[str, Any]
-    ) -> None:
-        """Handle a verdict matrix action."""
+    ) -> Optional[Phase]:
+        """Handle a verdict matrix action.
+
+        Returns:
+            The next phase to execute, or None if no further action needed.
+        """
         logger = get_logger(__name__)
 
-        if action == MatrixAction.RESEARCHER_REVERIFY:
+        if action == MatrixAction.PROCEED_TO_FORMATTER:
+            logger.info("Verdict action: PROCEED_TO_FORMATTER - proceeding to final formatting")
+            return Phase.PHASE_8_FORMATTING
+
+        elif action == MatrixAction.EXECUTOR_REVISE:
+            logger.info("Verdict action: EXECUTOR_REVISE - invoking revision cycle")
+            self._handle_executor_revision(context)
+            return Phase.PHASE_5_SOLUTION_GENERATION
+
+        elif action == MatrixAction.RESEARCHER_REVERIFY:
             logger.info("Verdict action: RESEARCHER_REVERIFY - re-running research phase on flagged claims")
             # Collect flagged claims from the review phase results
             flagged_claims = self._extract_flagged_claims()
@@ -432,10 +501,16 @@ class ExecutionPipeline:
                 )
             else:
                 logger.warning("No agent_executor in context; cannot regenerate solution")
+            return Phase.PHASE_5_SOLUTION_GENERATION
 
         elif action == MatrixAction.QUALITY_ARBITER:
             logger.info("Verdict action: QUALITY_ARBITER - invoking arbiter for dispute resolution")
             self._invoke_quality_arbiter(context)
+            return None  # Arbiter decides next action
+
+        else:
+            logger.warning("verdict_action.unknown", action=action.value)
+            return None
 
     def _extract_flagged_claims(self) -> List[str]:
         """Extract flagged claims from the review phase results."""
@@ -453,6 +528,63 @@ class ExecutionPipeline:
                     if issues:
                         flagged.extend(issues)
         return flagged
+
+    def _handle_executor_revision(self, context: Dict[str, Any]) -> None:
+        """Handle the EXECUTOR_REVISE action - re-run Executor with revision feedback.
+
+        This implements the revision loop for P-007.
+        """
+        logger = get_logger(__name__)
+
+        # Check if we've exceeded max revisions
+        if self.state.revision_cycle >= self.max_revisions:
+            logger.warning(
+                "revision.max_exceeded",
+                cycle=self.state.revision_cycle,
+                max_revisions=self.max_revisions
+            )
+            # Escalate to Quality Arbiter or proceed with warnings
+            if self.tier_level >= 4:
+                self._invoke_quality_arbiter(context)
+            return
+
+        # Increment revision cycle
+        self.state.revision_cycle += 1
+
+        # Collect revision feedback from review results
+        review_result = self.phase_results.get(Phase.PHASE_6_REVIEW)
+        revision_feedback = []
+        if review_result:
+            for result in review_result.agent_results:
+                if result.output and isinstance(result.output, dict):
+                    # Extract issues, suggestions, or critiques
+                    if "issues" in result.output:
+                        revision_feedback.extend(result.output["issues"])
+                    if "suggestions" in result.output:
+                        revision_feedback.extend(result.output["suggestions"])
+                    if "critique" in result.output:
+                        revision_feedback.append({
+                            "agent": result.agent_name,
+                            "critique": result.output["critique"]
+                        })
+
+        # Update context with revision information
+        context["revision_cycle"] = self.state.revision_cycle
+        context["revision_feedback"] = revision_feedback
+        context["is_revision"] = True
+
+        # Remove previous solution result to allow re-execution
+        if Phase.PHASE_5_SOLUTION_GENERATION in self.phase_results:
+            del self.phase_results[Phase.PHASE_5_SOLUTION_GENERATION]
+        if Phase.PHASE_5_SOLUTION_GENERATION in self.state.completed_phases:
+            self.state.completed_phases.remove(Phase.PHASE_5_SOLUTION_GENERATION)
+
+        logger.info(
+            "revision.cycle_started",
+            cycle=self.state.revision_cycle,
+            max_revisions=self.max_revisions,
+            feedback_items=len(revision_feedback)
+        )
 
     # ========================================================================
     # Debate Protocol
