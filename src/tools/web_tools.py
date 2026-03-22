@@ -32,9 +32,8 @@ def web_search_tool(
     Perform a web search using available search APIs.
 
     This function attempts to use multiple search strategies in order:
-    1. Environment-provided WebSearch tool (if available)
-    2. DuckDuckGo HTML API (free, no API key needed)
-    3. Simulated results based on query analysis (fallback)
+    1. DuckDuckGo HTML API (free, no API key needed)
+    2. Manual search suggestions (when search fails)
 
     Args:
         query: The search query
@@ -43,6 +42,7 @@ def web_search_tool(
 
     Returns:
         List of search results as dictionaries with keys: url, title, snippet, body
+        Returns suggested manual search links when web search is unavailable.
     """
     # Try DuckDuckGo HTML API (free, no API key required)
     try:
@@ -51,9 +51,11 @@ def web_search_tool(
             return results
     except Exception as e:
         # Log and continue to fallback
-        pass
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Web search failed for query '{query[:50]}...': {e}")
 
-    # Fallback: Generate contextual results based on query analysis
+    # Fallback: Return manual search suggestions (not fake results)
     return _generate_contextual_results(query, max_results)
 
 
@@ -283,89 +285,35 @@ def _extract_json_content(json_text: str, max_length: int) -> str:
 
 def _generate_contextual_results(query: str, max_results: int) -> List[Dict[str, Any]]:
     """
-    Generate contextual search results when real search is unavailable.
+    Return search failure notice when real search is unavailable.
 
-    This analyzes the query to generate relevant-looking results based on
-    domain knowledge and common patterns.
+    Previously this generated fake results, but that was misleading.
+    Now it returns a clear message that search failed, along with
+    suggested manual search URLs.
 
     Args:
         query: The search query
-        max_results: Maximum results to generate
+        max_results: Maximum results (ignored, always returns suggestions)
 
     Returns:
-        List of generated search results
+        List with suggested manual search actions (not actual search results)
     """
-    query_lower = query.lower()
-    results = []
-
-    # Map query keywords to authoritative sources
-    domain_mappings = {
-        'python': {
-            'domain': 'docs.python.org',
-            'name': 'Python Documentation',
-            'pattern': 'https://docs.python.org/3/{}'
-        },
-        'javascript': {
-            'domain': 'developer.mozilla.org',
-            'name': 'MDN Web Docs',
-            'pattern': 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/{}'
-        },
-        'react': {
-            'domain': 'react.dev',
-            'name': 'React Documentation',
-            'pattern': 'https://react.dev/learn/{}'
-        },
-        'api': {
-            'domain': 'swagger.io',
-            'name': 'API Documentation',
-            'pattern': 'https://swagger.io/docs/{}'
-        },
-        'docker': {
-            'domain': 'docs.docker.com',
-            'name': 'Docker Documentation',
-            'pattern': 'https://docs.docker.com/{}'
-        },
-        'kubernetes': {
-            'domain': 'kubernetes.io',
-            'name': 'Kubernetes Documentation',
-            'pattern': 'https://kubernetes.io/docs/concepts/{}'
-        },
-        'security': {
-            'domain': 'owasp.org',
-            'name': 'OWASP Security Knowledge Base',
-            'pattern': 'https://owasp.org/www-project-{}'
-        },
-    }
-
-    # Find matching domains
-    for keyword, info in domain_mappings.items():
-        if keyword in query_lower:
-            slug = re.sub(r'[^\w-]', '-', query_lower).replace('-', '_')
-            results.append({
-                'url': info['pattern'].format(slug if slug else keyword),
-                'title': f"{info['name']}: {query}",
-                'snippet': f"Official documentation and references for {query}. Includes guides, API references, and best practices.",
-                'body': f"Official {info['name']} resource covering {query}."
-            })
-            break
-
-    # Always add a Stack Overflow result
     from urllib.parse import quote
-    slug = re.sub(r'[^\w-]', '-', query_lower)
-    results.append({
-        'url': f"https://stackoverflow.com/search?q={quote(query)}",
-        'title': f"Stack Overflow: {query}",
-        'snippet': f"Community discussions and solutions related to {query}. Includes Q&A, code examples, and troubleshooting.",
-        'body': f"Community-driven knowledge base for {query}."
-    })
 
-    # Add a GitHub result
-    from urllib.parse import quote
-    results.append({
-        'url': f"https://github.com/search?q={quote(query)}&type=repositories",
-        'title': f"GitHub: {query}",
-        'snippet': f"Open source projects and repositories related to {query}. Find implementations, libraries, and examples.",
-        'body': f"Open source code and projects for {query}."
-    })
-
-    return results[:max_results]
+    # Return helpful suggestions for manual searching instead of fake results
+    return [
+        {
+            'url': f"https://duckduckgo.com/?q={quote(query)}",
+            'title': f"Search for '{query}' on DuckDuckGo",
+            'snippet': "⚠️ Web search is currently unavailable. Click here to search manually.",
+            'body': "Web search service is not configured. Please search manually using this link.",
+            '_suggested': True,  # Marker that this is a suggestion, not a real result
+        },
+        {
+            'url': f"https://www.google.com/search?q={quote(query)}",
+            'title': f"Search for '{query}' on Google",
+            'snippet': "⚠️ Alternative: Search manually on Google.",
+            'body': "Web search service is not configured. Please search manually using this link.",
+            '_suggested': True,
+        },
+    ]

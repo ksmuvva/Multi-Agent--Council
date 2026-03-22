@@ -827,12 +827,24 @@ class {handler_name}Handler:
 
     def _validate_input(self, data):
         \"\"\"Validate input against domain requirements.\"\"\"
-        # TODO: Implement input validation
+        # NOTE: Input validation is a placeholder for customization.
+        # Currently performs basic type checking - extend with domain-specific validation.
+        if data is None:
+            raise ValueError("Input data cannot be None")
+        # Add domain-specific validation rules here
+        # Example: Check required fields, data types, value ranges, etc.
+        self.logger.debug("input_validation.passed", data_type=type(data).__name__)
         return data
 
     def _validate_result(self, result):
         \"\"\"Validate output meets domain standards.\"\"\"
-        # TODO: Implement output validation
+        # NOTE: Output validation is a placeholder for customization.
+        # Currently performs basic checks - extend with domain-specific validation.
+        if result is None:
+            raise ValueError("Result cannot be None")
+        # Add domain-specific validation rules here
+        # Example: Check output format, completeness, quality standards, etc.
+        self.logger.debug("output_validation.passed", result_type=type(result).__name__)
         return result
 ```
 
