@@ -1,0 +1,70 @@
+{
+  "as_of_date": "2026-05-12",
+  "horizon_quarters": 8,
+  "current_state": {
+    "cpi_yoy_pct": 3.3,
+    "cpi_core_yoy_pct": 3.1,
+    "cpi_services_yoy_pct": 4.5,
+    "gdp_qoq_pct_underlying": 0.2,
+    "gdp_qoq_pct_headline_q1_2026": 0.5,
+    "unemployment_rate_pct": 4.9,
+    "bank_rate_pct": 4.25,
+    "gilt_10y_pct": 5.00,
+    "gilt_2y_pct": 4.60,
+    "yield_spread_10y_2y_bps": 40,
+    "pmi_manufacturing": 53.7,
+    "pmi_services": 52.7,
+    "pmi_composite": 53.0,
+    "gfk_consumer_confidence": -25,
+    "retail_sales_yoy_pct": -3.0,
+    "wage_growth_yoy_pct": 3.6,
+    "real_wage_growth_yoy_pct": 0.4
+  },
+  "structural_params": {
+    "potential_gdp_qoq_pct": 0.3,
+    "nairu_pct": 4.5,
+    "neutral_real_rate_pct": 0.5,
+    "inflation_target_pct": 2.0
+  },
+  "official_forecasts": {
+    "OBR_March_2026": {
+      "gdp_2026_pct": 1.1,
+      "cpi_2026_yearend_pct": 2.3,
+      "unemployment_2026_peak_pct": 5.33
+    },
+    "BoE_May_2026": {
+      "cpi_q2q3_2026_pct_range": [3.0, 3.5],
+      "cpi_q4_2026_outlook": "rises further then declines",
+      "cpi_back_to_target": "late 2026 / 2027"
+    },
+    "IMF_April_2026": {
+      "gdp_2026_pct": 0.8,
+      "cpi_2026_avg_pct": 3.2,
+      "cpi_peak_pct": 4.0,
+      "target_year": 2027
+    },
+    "prediction_markets_recession_2026_pct": 45.5
+  },
+  "risk_factors": {
+    "oil_shock_iran_conflict": {
+      "active": true,
+      "brent_yoy_pct_assumed": 32.0,
+      "persistence": 0.65
+    },
+    "us_tariffs_april_2026": {
+      "active": true,
+      "trade_drag_qoq_pct": 0.10
+    },
+    "fiscal_stance": "neutral_to_tightening",
+    "energy_price_cap_pressure": "upward"
+  },
+  "model_calibration_sources": [
+    "ONS CPI March 2026 release",
+    "BoE Monetary Policy Report April 2026",
+    "OBR Economic and Fiscal Outlook March 2026",
+    "IMF WEO April 2026 chapter 1",
+    "S&P Global UK PMI April 2026",
+    "GfK Consumer Confidence April 2026",
+    "Capital Economics yield curve commentary"
+  ]
+}

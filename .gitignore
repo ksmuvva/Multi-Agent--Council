@@ -152,6 +152,8 @@ logs/
 *.sqlite
 sessions/
 outputs/
+!forecasts/uk_2026/outputs/
+!forecasts/uk_2026/outputs/**
 temp/
 
 # Binary documents (store externally)
